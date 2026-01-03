@@ -1,0 +1,346 @@
+from fastapi import APIRouter, HTTPException, Depends, status
+from pydantic import BaseModel
+from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse
+from firebase_service import FirebaseService
+from firebase.auth import get_current_user_id
+from firebase_admin import auth
+
+router = APIRouter()
+
+class LoginRequest(BaseModel):
+    token: str
+
+class FavoriteRequest(BaseModel):
+    joke_id: str
+
+@router.post("/login", response_model=LoginResponse)
+async def login(request: LoginRequest):
+    """
+    Verify Firebase ID token and return user information
+    This endpoint expects a Firebase ID token in the request body
+    """
+    try:
+        decoded_token = auth.verify_id_token(request.token)
+        user_id = decoded_token.get('uid')
+        # Email is usually present, but may be empty for some Google accounts
+        # or if user hasn't verified their email
+        user_email = decoded_token.get('email', '') or decoded_token.get('name', '') or 'No email'
+        
+        return LoginResponse(
+            message="Login successful",
+            user_id=user_id,
+            user_email=user_email
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid token: {str(e)}"
+        )
+
+@router.post("/jokes", response_model=JokeResponse)
+async def add_joke(
+    joke: JokeCreate,
+    user_id: str = Depends(get_current_user_id)
+):
+    """
+    Add a new joke (requires authentication)
+    """
+    try:
+        # Add joke to Firestore and user's creation_history
+        joke_id = FirebaseService.add_to_user_created_jokes(
+            joke_setup=joke.joke_setup,
+            joke_punchline=joke.joke_punchline,
+            creator_id=user_id,
+            joke_content=joke.joke_content,
+            default_audio_id=joke.default_audio_id,
+            scenarios=joke.scenarios,
+            ages=joke.ages
+        )
+        
+        # Get the created joke to return
+        jokes = FirebaseService.get_all_jokes()
+        created_joke = next((j for j in jokes if j.joke_id == joke_id), None)
+        
+        if not created_joke:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve created joke"
+            )
+        
+        return created_joke
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add joke: {str(e)}"
+        )
+
+@router.get("/jokes", response_model=JokeListResponse)
+async def get_all_jokes():
+    """
+    Get all jokes (no authentication required)
+    """
+    try:
+        jokes = FirebaseService.get_all_jokes()
+        return JokeListResponse(jokes=jokes)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get jokes: {str(e)}"
+        )
+
+@router.post("/users/{user_id}/favorites", response_model=FavoriteResponse)
+async def add_to_favorite_jokes(
+    user_id: str,
+    request: FavoriteRequest,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Add a joke to user's favorites (requires authentication)
+    User can only add to their own favorites
+    """
+    try:
+        # Verify user is adding to their own favorites
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only add to your own favorites"
+            )
+        
+        # Verify joke exists
+        jokes = FirebaseService.get_all_jokes()
+        joke_exists = any(j.joke_id == request.joke_id for j in jokes)
+        
+        if not joke_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Joke with ID {request.joke_id} not found"
+            )
+        
+        # Add to favorites
+        added = FirebaseService.add_to_favorite_jokes(user_id, request.joke_id)
+        
+        if added:
+            return FavoriteResponse(
+                message="Joke added to favorites",
+                success=True,
+                joke_id=request.joke_id,
+                user_id=user_id
+            )
+        else:
+            return FavoriteResponse(
+                message="Joke is already in favorites",
+                success=False,
+                joke_id=request.joke_id,
+                user_id=user_id
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to add to favorites: {str(e)}"
+            )
+
+@router.delete("/users/{user_id}/created-jokes/{joke_id}", response_model=DeleteJokeResponse)
+async def delete_joke_from_created_by_user(
+    user_id: str,
+    joke_id: str,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Delete a joke from user's created jokes (requires authentication)
+    User can only delete their own created jokes
+    """
+    try:
+        # Verify user is deleting their own joke
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only delete your own created jokes"
+            )
+        
+        # Verify joke exists and belongs to user
+        jokes = FirebaseService.get_all_jokes()
+        joke = next((j for j in jokes if j.joke_id == joke_id), None)
+        
+        if not joke:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Joke with ID {joke_id} not found"
+            )
+        
+        # Verify joke was created by this user
+        if joke.creator_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only delete jokes you created"
+            )
+        
+        # Remove from user's creation_history
+        deleted = FirebaseService.delete_user_created_jokes(user_id, joke_id)
+        
+        if deleted:
+            return DeleteJokeResponse(
+                message="Joke removed from your created jokes",
+                success=True,
+                joke_id=joke_id,
+                user_id=user_id
+            )
+        else:
+            return DeleteJokeResponse(
+                message="Joke was not in your created jokes list",
+                success=False,
+                joke_id=joke_id,
+                user_id=user_id
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to delete joke: {str(e)}"
+            )
+
+@router.delete("/users/{user_id}/favorites/{joke_id}", response_model=FavoriteResponse)
+async def delete_favorite_jokes(
+    user_id: str,
+    joke_id: str,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Delete a joke from user's favorites (requires authentication)
+    User can only delete from their own favorites
+    """
+    try:
+        # Verify user is deleting from their own favorites
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only delete from your own favorites"
+            )
+        
+        # Verify joke exists
+        jokes = FirebaseService.get_all_jokes()
+        joke_exists = any(j.joke_id == joke_id for j in jokes)
+        
+        if not joke_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Joke with ID {joke_id} not found"
+            )
+        
+        # Remove from favorites
+        deleted = FirebaseService.delete_favorite_jokes(user_id, joke_id)
+        
+        if deleted:
+            return FavoriteResponse(
+                message="Joke removed from favorites",
+                success=True,
+                joke_id=joke_id,
+                user_id=user_id
+            )
+        else:
+            return FavoriteResponse(
+                message="Joke was not in your favorites",
+                success=False,
+                joke_id=joke_id,
+                user_id=user_id
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to delete from favorites: {str(e)}"
+            )
+
+@router.post("/users/{user_id}/like-history/{joke_id}", response_model=LikeDislikeResponse)
+async def add_to_user_liked_history(
+    user_id: str,
+    joke_id: str,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Add joke to user's like_history and remove from dislike_history (requires authentication)
+    User can only modify their own like history
+    """
+    try:
+        # Verify user is modifying their own history
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only modify your own like history"
+            )
+        
+        # Verify joke exists
+        jokes = FirebaseService.get_all_jokes()
+        joke_exists = any(j.joke_id == joke_id for j in jokes)
+        
+        if not joke_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Joke with ID {joke_id} not found"
+            )
+        
+        # Add to like_history and remove from dislike_history
+        success = FirebaseService.add_to_user_liked_history(user_id, joke_id)
+        
+        return LikeDislikeResponse(
+            message="Joke added to like history",
+            success=success,
+            joke_id=joke_id,
+            user_id=user_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add to like history: {str(e)}"
+        )
+
+@router.post("/users/{user_id}/dislike-history/{joke_id}", response_model=LikeDislikeResponse)
+async def add_to_user_dislike_history(
+    user_id: str,
+    joke_id: str,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Add joke to user's dislike_history and remove from like_history (requires authentication)
+    User can only modify their own dislike history
+    """
+    try:
+        # Verify user is modifying their own history
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only modify your own dislike history"
+            )
+        
+        # Verify joke exists
+        jokes = FirebaseService.get_all_jokes()
+        joke_exists = any(j.joke_id == joke_id for j in jokes)
+        
+        if not joke_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Joke with ID {joke_id} not found"
+            )
+        
+        # Add to dislike_history and remove from like_history
+        success = FirebaseService.add_to_user_disliked_history(user_id, joke_id)
+        
+        return LikeDislikeResponse(
+            message="Joke added to dislike history",
+            success=success,
+            joke_id=joke_id,
+            user_id=user_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add to dislike history: {str(e)}"
+        )
+

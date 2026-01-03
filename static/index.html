@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joke API Tester</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        
+        // Your Firebase config - UPDATE THIS WITH YOUR CONFIG
+        const firebaseConfig = {
+            apiKey: "AIzaSyAWSmWiDKPuYUbx0NeBMAfeYeFQR8W-8zc",
+            authDomain: "sixseven-7f96d.firebaseapp.com",
+            databaseURL: "https://sixseven-7f96d-default-rtdb.firebaseio.com",
+            projectId: "sixseven-7f96d",
+            storageBucket: "sixseven-7f96d.firebasestorage.app",
+            messagingSenderId: "29986224636",
+            appId: "1:29986224636:web:0589b74c1b842e6c5e9a79",
+            measurementId: "G-QSRJGCNG22"
+        };
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        
+        // Make auth available globally
+        window.firebaseAuth = auth;
+        
+        // Listen to auth state changes
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                user.getIdToken().then(token => {
+                    window.currentUserToken = token;
+                    // Use email or displayName for Google users
+                    const displayName = user.email || user.displayName || 'User';
+                    updateUI(true, displayName);
+                    // Reload jokes to show favorite buttons
+                    if (window.loadJokes) {
+                        window.loadJokes();
+                    }
+                });
+            } else {
+                window.currentUserToken = null;
+                updateUI(false);
+                // Reload jokes to hide favorite buttons
+                if (window.loadJokes) {
+                    window.loadJokes();
+                }
+            }
+        });
+        
+        function updateUI(isLoggedIn, email = '') {
+            const loginSection = document.getElementById('loginSection');
+            const userSection = document.getElementById('userSection');
+            const userEmail = document.getElementById('userEmail');
+            
+            if (isLoggedIn) {
+                loginSection.style.display = 'none';
+                userSection.style.display = 'block';
+                userEmail.textContent = email;
+            } else {
+                loginSection.style.display = 'block';
+                userSection.style.display = 'none';
+            }
+        }
+        
+        // Register functions
+        window.loginUser = async (email, password) => {
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                return { success: true, user: userCredential.user };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        };
+        
+        window.registerUser = async (email, password) => {
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                return { success: true, user: userCredential.user };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        };
+        
+        window.logoutUser = async () => {
+            try {
+                await signOut(auth);
+                return { success: true };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        };
+        
+        window.loginWithGoogle = async () => {
+            try {
+                const provider = new GoogleAuthProvider();
+                const userCredential = await signInWithPopup(auth, provider);
+                return { success: true, user: userCredential.user };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>😄 Joke API Tester</h1>
+        </header>
+
+        <!-- Login Section -->
+        <section id="loginSection" class="section">
+            <h2>Login / Register</h2>
+            <div class="auth-form">
+                <input type="email" id="email" placeholder="Email" required>
+                <input type="password" id="password" placeholder="Password" required>
+                <div class="button-group">
+                    <button onclick="handleLogin()" class="btn btn-primary">Login</button>
+                    <button onclick="handleRegister()" class="btn btn-secondary">Register</button>
+                </div>
+                <div class="divider">
+                    <span>OR</span>
+                </div>
+                <button onclick="handleGoogleLogin()" class="btn btn-google">
+                    <svg width="18" height="18" viewBox="0 0 18 18" style="margin-right: 8px;">
+                        <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+                        <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+                        <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.96H.957C.348 6.175 0 7.55 0 9s.348 2.825.957 4.04l3.007-2.333z"/>
+                        <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.96L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z"/>
+                    </svg>
+                    Sign in with Google
+                </button>
+                <div id="authError" class="error-message"></div>
+            </div>
+        </section>
+
+        <!-- User Section (when logged in) -->
+        <section id="userSection" class="section" style="display: none;">
+            <div class="user-info">
+                <span>Logged in as: <strong id="userEmail"></strong></span>
+                <button onclick="handleLogout()" class="btn btn-danger">Logout</button>
+            </div>
+        </section>
+
+        <!-- Add Joke Section (when logged in) -->
+        <section id="addJokeSection" class="section" style="display: none;">
+            <h2>Add New Joke</h2>
+            <form id="addJokeForm" onsubmit="handleAddJoke(event)">
+                <div class="form-group">
+                    <label for="jokeSetup">Setup:</label>
+                    <textarea id="jokeSetup" rows="3" required placeholder="Enter joke setup..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="jokePunchline">Punchline:</label>
+                    <textarea id="jokePunchline" rows="3" required placeholder="Enter joke punchline..."></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Add Joke</button>
+                <div id="addJokeError" class="error-message"></div>
+                <div id="addJokeSuccess" class="success-message"></div>
+            </form>
+        </section>
+
+        <!-- Jokes List Section -->
+        <section class="section">
+            <div class="section-header">
+                <h2>All Jokes</h2>
+                <button onclick="loadJokes()" class="btn btn-secondary">Refresh</button>
+            </div>
+            <div id="jokesList" class="jokes-list">
+                <div class="loading">Loading jokes...</div>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
+
