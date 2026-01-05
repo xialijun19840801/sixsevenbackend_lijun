@@ -201,9 +201,11 @@
                 <div id="getJokesError" class="error-message"></div>
                 <div id="getJokesSuccess" class="success-message"></div>
             </form>
-            <div id="getJokesResults" class="jokes-list" style="margin-top: 20px; display: none;">
+            <div id="getJokesResults" style="margin-top: 20px; display: none;">
                 <h3>Recommended Jokes</h3>
-                <div id="getJokesList"></div>
+                <div class="jokes-scroll-container">
+                    <div id="getJokesList" class="jokes-list"></div>
+                </div>
             </div>
         </section>
 
@@ -220,8 +222,10 @@
                 <h2 id="sectionTitle">All Jokes</h2>
                 <button onclick="refreshCurrentTab()" class="btn btn-secondary">Refresh</button>
             </div>
-            <div id="jokesList" class="jokes-list">
-                <div class="loading">Loading jokes...</div>
+            <div class="jokes-scroll-container">
+                <div id="jokesList" class="jokes-list">
+                    <div class="loading">Loading jokes...</div>
+                </div>
             </div>
         </section>
     </div>

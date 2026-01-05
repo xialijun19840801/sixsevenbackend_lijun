@@ -3,12 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from firebase.firebase_init import initialize_firebase
 from routes import router
+from firebase_service import FirebaseService
 
 # Initialize Firebase
 print("--- Starting API ---")
 try:
     initialize_firebase()
     print("--- Firebase Initialized ---")
+    
+    # Run migration to add random_val to existing jokes
+    #print("--- Running migration to add random_val to jokes ---")
+    #result = FirebaseService.migrate_add_random_val()
+    #print(f"--- Migration completed: {result} ---")
 except Exception as e:
     print(f"--- Firebase Failed: {e} ---")
 

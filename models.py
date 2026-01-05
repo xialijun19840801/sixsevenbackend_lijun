@@ -23,6 +23,7 @@ class JokeResponse(BaseModel):
     created_by_customer: bool
     creator_id: str
     created_at: Optional[datetime] = None
+    random_val: Optional[float] = None
 
 class JokeListResponse(BaseModel):
     jokes: List[JokeResponse]

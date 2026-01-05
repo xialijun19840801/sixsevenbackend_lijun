@@ -255,6 +255,34 @@ header h1 {
     min-height: 20px;
 }
 
+.jokes-scroll-container {
+    max-height: 600px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px;
+    border-radius: 8px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+}
+
+.jokes-scroll-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.jokes-scroll-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.jokes-scroll-container::-webkit-scrollbar-thumb {
+    background: #667eea;
+    border-radius: 4px;
+}
+
+.jokes-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: #5568d3;
+}
+
 .jokes-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -331,9 +359,10 @@ header h1 {
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
     flex: 1;
     min-width: 100px;
+    border: 2px solid transparent;
 }
 
 .btn-favorite {
@@ -369,6 +398,31 @@ header h1 {
     box-shadow: 0 4px 8px rgba(72, 187, 120, 0.3);
 }
 
+.btn-like.active,
+.btn-like:active {
+    background: #2f855a;
+    border: 2px solid #22543d;
+    box-shadow: 0 2px 4px rgba(72, 187, 120, 0.5) inset;
+}
+
+.btn-unlike {
+    background: #f56565;
+    color: white;
+}
+
+.btn-unlike:hover {
+    background: #e53e3e;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(245, 101, 101, 0.3);
+}
+
+.btn-unlike.active,
+.btn-unlike:active {
+    background: #c53030;
+    border: 2px solid #9b2c2c;
+    box-shadow: 0 2px 4px rgba(245, 101, 101, 0.5) inset;
+}
+
 .btn-dislike {
     background: #ed8936;
     color: white;
@@ -378,6 +432,31 @@ header h1 {
     background: #dd6b20;
     transform: translateY(-2px);
     box-shadow: 0 4px 8px rgba(237, 137, 54, 0.3);
+}
+
+.btn-dislike.active,
+.btn-dislike:active {
+    background: #c05621;
+    border: 2px solid #9c4221;
+    box-shadow: 0 2px 4px rgba(237, 137, 54, 0.5) inset;
+}
+
+.btn-undislike {
+    background: #f56565;
+    color: white;
+}
+
+.btn-undislike:hover {
+    background: #e53e3e;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(245, 101, 101, 0.3);
+}
+
+.btn-undislike.active,
+.btn-undislike:active {
+    background: #c53030;
+    border: 2px solid #9b2c2c;
+    box-shadow: 0 2px 4px rgba(245, 101, 101, 0.5) inset;
 }
 
 .btn-delete {
@@ -421,6 +500,10 @@ header h1 {
 }
 
 @media (max-width: 768px) {
+    .jokes-scroll-container {
+        max-height: 500px;
+    }
+    
     .jokes-list {
         grid-template-columns: 1fr;
     }
