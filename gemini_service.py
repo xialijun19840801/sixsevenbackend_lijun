@@ -1,12 +1,15 @@
 import google.genai as genai
 from google.genai import types
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from models import GeminiJokeItem
 from firebase.config import GEMINI_API_KEY
-from firebase.firebase_init import get_storage_bucket, get_firestore
+from firebase.firebase_init import get_firestore
+from firebase_service import FirebaseService
 import json
 import re
 import base64
+import wave
+import io
 
 class GeminiService:
     
@@ -209,14 +212,18 @@ Return ONLY the JSON array, no additional text or explanation."""
         return jokes[:10]  # Return up to 10 jokes
     
     @staticmethod
-    def generate_audio_for_joke(joke_id: str, setup: str, punchline: str) -> Optional[str]:
+    def generate_audio_for_joke(joke_id: str, setup: str, punchline: str) -> Optional[Tuple[str, int]]:
         """
         Generate audio for a joke using Gemini's TTS model, upload to Firebase Storage,
-        and update Firestore with the audio URL.
+        and save to database. Returns the audio URL and size.
         
         Args:
+           joke_id: The ID of the joke
            setup: setup for the joke
            punchline: punchline for the joke
+        
+        Returns:
+           Optional[Tuple[str, int]]: (audio_url, audio_size) or None if generation fails
         """
         try:
             if not GEMINI_API_KEY:
@@ -224,90 +231,110 @@ Return ONLY the JSON array, no additional text or explanation."""
             
             # Create Gemini client
             client = genai.Client(api_key=GEMINI_API_KEY)
-            
-            # 1. Generate the audio content using Gemini TTS
 
-                    # 1. Use a raw dictionary for the entire config 
-            # to bypass the SDK's strict Pydantic validation
+            # Use the most basic config possible to ensure the SDK doesn't block it
             joke_config = {
                 "response_modalities": ["AUDIO"],
                 "speech_config": {
                     "voice_config": {
                         "prebuilt_voice_config": {
-                            # For multiple voices, Gemini 2.5 often prefers 
-                            # a single high-quality voice that you "direct" via the prompt.
-                            "voice_name": "Puck" 
+                            "voice_name": "Puck" # Puck is the most stable voice for 2.5
                         }
                     }
                 }
             }
 
-            # 2. Use "Prompt Engineering" to switch voices
-            # Gemini 2.5 Flash is smart enough to change voices if you label them
+            # We put the "acting" instructions in the prompt text
             audio_prompt = f"""
-            Please perform this joke with two different voices:
-            WOMAN: {setup}
-            [short pause]
-            KID: {punchline}
+            Perform this as a dramatic dialogue, make the voice funny and engaging. 
+            Change your pitch and tone to distinguish between the characters.
+            Character 1 (Woman): {setup}
+            [pause]
+            Character 2 (Man): {punchline}
             """
-            # Generate audio with TTS model
+
             response = client.models.generate_content(
                 model="gemini-2.5-flash-preview-tts",
                 contents=audio_prompt,
                 config=joke_config
             )
             
-            # 2. Extract the audio data
-            # The response should contain audio data
+            # 1. CHECK FOR ERROR/BLOCKING FIRST
+            if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+                if hasattr(response.prompt_feedback, 'block_reason') and response.prompt_feedback.block_reason:
+                    print(f"BLOCKED: {response.prompt_feedback.block_reason} for joke {joke_id}")
+                    return None  # Don't upload anything!
+            
+            # 2. CHECK IF AUDIO PART EXISTS
             if not hasattr(response, 'candidates') or not response.candidates or len(response.candidates) == 0:
+                print(f"ERROR: No response candidates from Gemini for joke {joke_id}")
                 raise ValueError("No response candidates from Gemini")
             
             candidate = response.candidates[0]
             if not hasattr(candidate, 'content') or not candidate.content:
+                print(f"ERROR: No content in response candidate for joke {joke_id}")
                 raise ValueError("No content in response candidate")
             
             # Extract audio data from the response
             audio_data = None
-            if hasattr(candidate.content, 'parts'):
+            if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                print(f"Get Parts: size = {len(candidate.content.parts)} parts")
                 for part in candidate.content.parts:
                     if hasattr(part, 'inline_data') and part.inline_data:
                         if hasattr(part.inline_data, 'data'):
                             audio_data = part.inline_data.data
+                            print(f"Get Inline Data.data: size = {len(audio_data)} bytes (base64 encoded)")
                             break
                     elif hasattr(part, 'data'):
+                        print(f"Get Data: size = {len(part.data)} bytes (base64 encoded)")
                         audio_data = part.data
                         break
             
             if not audio_data:
+                print(f"ERROR: Response contained text but no audio data for joke {joke_id}")
                 raise ValueError("No audio data found in response")
             
             # Decode base64 audio data to bytes
-            audio_bytes = base64.b64decode(audio_data)
+            # If part.data is a string, it's base64 and needs decoding
+            # If part.data is already 'bytes', don't decode it!
+            if isinstance(audio_data, str):
+                audio_data = base64.b64decode(audio_data)
+            print(f"SUCCESS: Generated {len(audio_data)} bytes for joke {joke_id}")
+
+            # ONLY UPLOAD IF SIZE IS REASONABLE (> 10000 bytes)
+            if len(audio_data) <= 10000:
+                print(f"ERROR: Audio too small for joke {joke_id}")
+                print(f"Audio size: {len(audio_data)} bytes (minimum required: 10000 bytes)")
+                print("Finish Reason:", response.candidates[0].finish_reason)
+                print("Safety Ratings:", response.candidates[0].safety_ratings)
+                return None
             
-            # 3. Upload to Firebase Storage
-            bucket = get_storage_bucket()
-            file_path = f"jokes_audio/{joke_id}/default.mp3"
-            blob = bucket.blob(file_path)
+            wav_audio = GeminiService._convert_to_wav(audio_data)
             
-            # Upload the audio file
-            blob.upload_from_string(
-                audio_bytes,
-                content_type='audio/mp3'
-            )
+            print(f"Original size: {len(audio_data)} | Wrapped size: {len(wav_audio)} for joke {joke_id}")
             
-            # Make the file publicly accessible
-            blob.make_public()
+            # Upload to Firebase Storage bucket using FirebaseService
+            file_path = f"jokes_audio/{joke_id}/default.wav"
+            audio_url, audio_size = FirebaseService.save_to_bucket(file_path, wav_audio, content_type='audio/wav')
             
-            # Get the public URL
-            audio_url = blob.public_url
-            
-            # 4. Update Firestore
-            db = get_firestore()
-            db.collection("jokes").document(joke_id).update({"audioUrl": audio_url})
-            
-            return audio_url
+            return audio_url, audio_size
             
         except Exception as e:
-            print(f"Error generating audio for joke {joke_id}: {str(e)}")
+            print(f"CRITICAL ERROR generating audio for joke {joke_id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
 
+    @staticmethod
+    def _convert_to_wav(pcm_data):
+        """
+        Convert PCM audio data to WAV format.
+        Gemini 2.5 TTS default: 24000Hz, 16-bit, Mono
+        """
+        with io.BytesIO() as wav_file:
+            with wave.open(wav_file, 'wb') as wf:
+                wf.setnchannels(1)          # Mono
+                wf.setsampwidth(2)          # 16-bit (2 bytes)
+                wf.setframerate(24000)      # 24kHz
+                wf.writeframes(pcm_data)
+            return wav_file.getvalue()

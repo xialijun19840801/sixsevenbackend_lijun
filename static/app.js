@@ -476,6 +476,8 @@ async function handlePlayAudio(jokeId) {
         
         // Create and play audio
         const audio = new Audio(audioUrl);
+        // Add this to handle cross-origin loading
+        audio.crossOrigin = "anonymous";
         
         // Handle audio events
         audio.onloadstart = () => {

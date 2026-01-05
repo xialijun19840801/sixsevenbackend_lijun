@@ -683,7 +683,7 @@ async def get_jokes(
 
         
 @router.get("/jokes/{joke_id}/audio")
-async def get_audio_for_joke(joke_id: str):
+async def get_audio_for_joke(joke_id: str, background_tasks: BackgroundTasks):
     """
     Get the audio URL for a joke.
     First tries to get the default audio URL from the joke.
@@ -707,34 +707,27 @@ async def get_audio_for_joke(joke_id: str):
                 detail=f"Joke with ID {joke_id} not found"
             )
         
-        # Generate audio using Gemini TTS
-        audio_url = GeminiService.generate_audio_for_joke(joke_id, joke.joke_setup, joke.joke_punchline)
+        # Generate audio using Gemini TTS (this now handles upload and DB save)
+        result = GeminiService.generate_audio_for_joke(joke_id, joke.joke_setup, joke.joke_punchline)
         
-        if not audio_url:
+        if not result:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to generate audio for joke"
             )
         
-        # Save the audio URL as default_audio_url to the joke document and insert to joke_audios collection asynchronously
-        from firebase.firebase_init import get_firestore
+        # Unpack result (audio_url, audio_size)
+        audio_url, audio_size = result
         
-        def save_audio_url_async():
-            try:
-                db = get_firestore()
-                # Update the joke document with default_audio_url
-                db.collection('jokes').document(joke_id).update({
-                    'default_audio_url': audio_url
-                })
-                # Insert/update entry in joke_audios collection
-                db.collection('joke_audios').document(joke_id).set({
-                    'audio_url': audio_url
-                })
-            except Exception as e:
-                print(f"Error saving audio URL asynchronously: {str(e)}")
-        
-        thread = threading.Thread(target=save_audio_url_async, daemon=True)
-        thread.start()
+        # Save the audio URL and metadata asynchronously using FirebaseService
+        # is_default=True since this is the default audio for the joke
+        background_tasks.add_task(
+            FirebaseService.save_audio_url_async,
+            joke_id,
+            audio_url,
+            audio_size,
+            True  # is_default=True
+        )
         
         return {"audio_url": audio_url, "joke_id": joke_id}
         

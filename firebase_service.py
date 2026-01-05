@@ -1,7 +1,8 @@
-from firebase.firebase_init import get_firestore
+from firebase.firebase_init import get_firestore, get_storage_bucket
 from models import JokeResponse
 from typing import List, Optional, Dict
 from datetime import datetime
+from firebase_admin.firestore import ArrayUnion
 import random
 import threading
 
@@ -901,4 +902,74 @@ class FirebaseService:
         
         print(f"Migration completed: {result}")
         return result
+    
+    @staticmethod
+    def save_audio_url_async(joke_id: str, audio_url: str, audio_size: int, is_default: bool = True):
+        """
+        Save audio URL and metadata to Firestore asynchronously.
+        Updates the joke document with default_audio_url if is_default is True.
+        Always inserts/updates entry in joke_audios collection.
+        
+        Args:
+            joke_id: The ID of the joke
+            audio_url: The URL of the audio file
+            audio_size: The size of the audio file in bytes
+            is_default: If True, update default_audio_url in the joke document. Defaults to True.
+        """
+        try:
+            db = _get_db()
+            joke_ref = db.collection('jokes').document(joke_id)
+            
+            # Always add audio_url to audio_urls array (whether default or not)
+            joke_ref.update({
+                'audio_urls': ArrayUnion([audio_url])
+            })
+            
+            # Update the joke document with default_audio_url only if is_default is True
+            if is_default:
+                joke_ref.update({
+                    'default_audio_url': audio_url
+                })
+           
+            # Insert/update entry in joke_audios collection (always save)
+            db.collection('joke_audios').document(joke_id).set({
+                'joke_id': joke_id,
+                'audio_url': audio_url,
+                'audio_size': audio_size,
+                'created_at': datetime.utcnow()
+            }, merge=True)
+        except Exception as e:
+            print(f"Error saving audio URL asynchronously for joke {joke_id}: {str(e)}")
+    
+    @staticmethod
+    def save_to_bucket(file_path: str, file_data: bytes, content_type: str = 'audio/wav') -> tuple[str, int]:
+        """
+        Upload file data to Firebase Storage bucket and make it publicly accessible.
+        
+        Args:
+            file_path: The path where the file should be stored in the bucket
+            file_data: The file data as bytes
+            content_type: The content type of the file (default: 'audio/wav')
+        
+        Returns:
+            tuple: (public_url, file_size) - The public URL of the uploaded file and its size in bytes
+        """
+        try:
+            bucket = get_storage_bucket()
+            blob = bucket.blob(file_path)
+            
+            # Upload the file
+            blob.upload_from_string(file_data, content_type=content_type)
+            
+            # Make the file publicly accessible
+            blob.make_public()
+            
+            # Get the public URL and file size
+            audio_url = blob.public_url
+            file_size = len(file_data)
+            
+            return audio_url, file_size
+        except Exception as e:
+            print(f"Error uploading file to bucket at {file_path}: {str(e)}")
+            raise
     
