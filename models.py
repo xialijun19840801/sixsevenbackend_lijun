@@ -7,7 +7,8 @@ class JokeCreate(BaseModel):
     joke_setup: str
     joke_punchline: str
     joke_content: Optional[str] = ""
-    default_audio_id: Optional[str] = ""
+    default_audio_url: Optional[str] = ""
+    audio_urls: Optional[List[str]] = []
     scenarios: Optional[List[str]] = []
     age_range: Optional[List[str]] = []
 
@@ -17,7 +18,8 @@ class JokeResponse(BaseModel):
     joke_setup: str
     joke_punchline: str
     joke_content: Optional[str] = ""
-    default_audio_id: Optional[str] = ""
+    default_audio_url: Optional[str] = ""
+    audio_urls: Optional[List[str]] = []
     scenarios: Optional[List[str]] = []
     age_range: Optional[List[str]] = []
     created_by_customer: bool
@@ -62,4 +64,14 @@ class GeminiJokeItem(BaseModel):
 
 class GeminiJokeResponse(BaseModel):
     jokes: List[GeminiJokeItem]
+
+class JokeAudioRequest(BaseModel):
+    joke_setup: str
+    joke_punchline: str
+
+class JokeAudioResponse(BaseModel):
+    setup_audio: str  # Base64 encoded MP3
+    punchline_audio: str  # Base64 encoded MP3
+    setup_voice: str = "en-US-Neural2-F"
+    punchline_voice: str = "en-US-Neural2-J"
 

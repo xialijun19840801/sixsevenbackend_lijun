@@ -412,6 +412,11 @@ async function displayJokes(jokes, container = null) {
                 <span class="joke-author">By: ${escapeHtml(joke.creator_id || 'Anonymous')}</span>
                 ${joke.created_at ? `<span class="joke-date">${formatDate(joke.created_at)}</span>` : ''}
             </div>
+            <div class="joke-actions">
+                <button onclick="handlePlayAudio('${joke.joke_id}')" class="btn-play-audio" title="Play audio" id="play-audio-btn-${joke.joke_id}">
+                    🔊 Play Audio
+                </button>
+            </div>
             ${window.currentUserToken ? `
                 <div class="joke-actions">
                     <button onclick="handleAddToFavorites('${joke.joke_id}')" class="btn-favorite" title="Add to favorites" id="fav-btn-${joke.joke_id}" style="display: ${isFavorite ? 'none' : 'inline-block'};">
@@ -442,6 +447,70 @@ async function displayJokes(jokes, container = null) {
         </div>
     `;
     }).join('');
+}
+
+// Play Audio Handler
+async function handlePlayAudio(jokeId) {
+    const playBtn = document.getElementById(`play-audio-btn-${jokeId}`);
+    
+    // Disable button while loading
+    if (playBtn) {
+        playBtn.disabled = true;
+        playBtn.textContent = '⏳ Loading...';
+    }
+    
+    try {
+        // Call backend API to get audio URL
+        const response = await fetch(`${API_BASE_URL}/jokes/${jokeId}/audio`);
+        
+        if (!response.ok) {
+            throw new Error(`Failed to get audio: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        const audioUrl = data.audio_url;
+        
+        if (!audioUrl) {
+            throw new Error('No audio URL returned');
+        }
+        
+        // Create and play audio
+        const audio = new Audio(audioUrl);
+        
+        // Handle audio events
+        audio.onloadstart = () => {
+            if (playBtn) {
+                playBtn.textContent = '⏸️ Playing...';
+            }
+        };
+        
+        audio.onended = () => {
+            if (playBtn) {
+                playBtn.disabled = false;
+                playBtn.textContent = '🔊 Play Audio';
+            }
+        };
+        
+        audio.onerror = (error) => {
+            console.error('Error playing audio:', error);
+            alert('Failed to play audio. Please try again.');
+            if (playBtn) {
+                playBtn.disabled = false;
+                playBtn.textContent = '🔊 Play Audio';
+            }
+        };
+        
+        // Play the audio
+        await audio.play();
+        
+    } catch (error) {
+        console.error('Error getting/playing audio:', error);
+        alert(`Failed to play audio: ${error.message}`);
+        if (playBtn) {
+            playBtn.disabled = false;
+            playBtn.textContent = '🔊 Play Audio';
+        }
+    }
 }
 
 // Helper Functions
@@ -1187,10 +1256,8 @@ window.switchTab = switchTab;
 window.refreshCurrentTab = refreshCurrentTab;
 window.updateTabsVisibility = updateTabsVisibility;
 window.handleGetJokes = handleGetJokes;
+window.handlePlayAudio = handlePlayAudio;
 
-// Load jokes on page load
-window.addEventListener('load', () => {
-    loadJokes();
-    updateTabsVisibility();
-});
+// Note: loadJokes() is called by onAuthStateChanged in index.html
+// which handles both initial load and auth state changes
 

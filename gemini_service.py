@@ -1,9 +1,12 @@
-import google.generativeai as genai
-from typing import List
+import google.genai as genai
+from google.genai import types
+from typing import List, Optional
 from models import GeminiJokeItem
 from firebase.config import GEMINI_API_KEY
+from firebase.firebase_init import get_storage_bucket, get_firestore
 import json
 import re
+import base64
 
 class GeminiService:
     
@@ -31,11 +34,8 @@ class GeminiService:
         if not GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not set in environment variables")
         
-        # Configure Gemini
-        genai.configure(api_key=GEMINI_API_KEY)
-        
-        # Create the models
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        # Create Gemini client
+        client = genai.Client(api_key=GEMINI_API_KEY)
 
         # Note: Model listing code removed - this was likely for debugging
 
@@ -91,10 +91,31 @@ Return ONLY the JSON array, no additional text or explanation."""
 
         try:
             # Generate content
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt
+            )
             
             # Extract JSON from response
-            response_text = response.text.strip()
+            # In the new API, text is accessed via candidates[0].content.parts[0].text
+            if not response.candidates or len(response.candidates) == 0:
+                raise ValueError("No response candidates from Gemini")
+            
+            candidate = response.candidates[0]
+            if not candidate.content or not candidate.content.parts:
+                raise ValueError("No content parts in response")
+            
+            # Get text from the first part
+            response_text = ""
+            for part in candidate.content.parts:
+                if hasattr(part, 'text') and part.text:
+                    response_text = part.text
+                    break
+            
+            if not response_text:
+                raise ValueError("No text found in response")
+            
+            response_text = response_text.strip()
             
             # Remove markdown code blocks if present
             if response_text.startswith("```json"):
@@ -123,7 +144,18 @@ Return ONLY the JSON array, no additional text or explanation."""
             
         except json.JSONDecodeError as e:
             # If JSON parsing fails, try to extract jokes manually
-            response_text = response.text if 'response' in locals() else ""
+            response_text = ""
+            if 'response' in locals() and response:
+                try:
+                    if response.candidates and len(response.candidates) > 0:
+                        candidate = response.candidates[0]
+                        if candidate.content and candidate.content.parts:
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    response_text = part.text
+                                    break
+                except:
+                    pass
             print(f"JSON parsing failed: {e}")
             print(f"Response text: {response_text[:500] if response_text else 'No response'}")
             
@@ -175,4 +207,107 @@ Return ONLY the JSON array, no additional text or explanation."""
             ))
         
         return jokes[:10]  # Return up to 10 jokes
+    
+    @staticmethod
+    def generate_audio_for_joke(joke_id: str, setup: str, punchline: str) -> Optional[str]:
+        """
+        Generate audio for a joke using Gemini's TTS model, upload to Firebase Storage,
+        and update Firestore with the audio URL.
+        
+        Args:
+           setup: setup for the joke
+           punchline: punchline for the joke
+        """
+        try:
+            if not GEMINI_API_KEY:
+                raise ValueError("GEMINI_API_KEY is not set in environment variables")
+            
+            # Create Gemini client
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            
+            # 1. Generate the audio content using Gemini TTS
+
+                    # 1. Use a raw dictionary for the entire config 
+            # to bypass the SDK's strict Pydantic validation
+            joke_config = {
+                "response_modalities": ["AUDIO"],
+                "speech_config": {
+                    "voice_config": {
+                        "prebuilt_voice_config": {
+                            # For multiple voices, Gemini 2.5 often prefers 
+                            # a single high-quality voice that you "direct" via the prompt.
+                            "voice_name": "Puck" 
+                        }
+                    }
+                }
+            }
+
+            # 2. Use "Prompt Engineering" to switch voices
+            # Gemini 2.5 Flash is smart enough to change voices if you label them
+            audio_prompt = f"""
+            Please perform this joke with two different voices:
+            WOMAN: {setup}
+            [short pause]
+            KID: {punchline}
+            """
+            # Generate audio with TTS model
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-preview-tts",
+                contents=audio_prompt,
+                config=joke_config
+            )
+            
+            # 2. Extract the audio data
+            # The response should contain audio data
+            if not hasattr(response, 'candidates') or not response.candidates or len(response.candidates) == 0:
+                raise ValueError("No response candidates from Gemini")
+            
+            candidate = response.candidates[0]
+            if not hasattr(candidate, 'content') or not candidate.content:
+                raise ValueError("No content in response candidate")
+            
+            # Extract audio data from the response
+            audio_data = None
+            if hasattr(candidate.content, 'parts'):
+                for part in candidate.content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        if hasattr(part.inline_data, 'data'):
+                            audio_data = part.inline_data.data
+                            break
+                    elif hasattr(part, 'data'):
+                        audio_data = part.data
+                        break
+            
+            if not audio_data:
+                raise ValueError("No audio data found in response")
+            
+            # Decode base64 audio data to bytes
+            audio_bytes = base64.b64decode(audio_data)
+            
+            # 3. Upload to Firebase Storage
+            bucket = get_storage_bucket()
+            file_path = f"jokes_audio/{joke_id}/default.mp3"
+            blob = bucket.blob(file_path)
+            
+            # Upload the audio file
+            blob.upload_from_string(
+                audio_bytes,
+                content_type='audio/mp3'
+            )
+            
+            # Make the file publicly accessible
+            blob.make_public()
+            
+            # Get the public URL
+            audio_url = blob.public_url
+            
+            # 4. Update Firestore
+            db = get_firestore()
+            db.collection("jokes").document(joke_id).update({"audioUrl": audio_url})
+            
+            return audio_url
+            
+        except Exception as e:
+            print(f"Error generating audio for joke {joke_id}: {str(e)}")
+            return None
 

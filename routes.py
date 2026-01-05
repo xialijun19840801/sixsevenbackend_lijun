@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from pydantic import BaseModel
-from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse
+from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse, JokeAudioRequest, JokeAudioResponse
 from firebase_service import FirebaseService
 from firebase.auth import get_current_user_id, get_optional_user_id
 from firebase_admin import auth
@@ -9,6 +9,7 @@ from typing import Optional
 from datetime import datetime
 import random
 import uuid
+import threading
 
 router = APIRouter()
 
@@ -57,7 +58,8 @@ async def add_joke(
             joke_punchline=joke.joke_punchline,
             creator_id=user_id,
             joke_content=joke.joke_content,
-            default_audio_id=joke.default_audio_id,
+            default_audio_url=joke.default_audio_url,
+            audio_urls=joke.audio_urls,
             scenarios=joke.scenarios,
             age_range=joke.age_range
         )
@@ -632,7 +634,8 @@ async def get_jokes(
                         joke_setup=gemini_joke.joke_setup,
                         joke_punchline=gemini_joke.joke_punchline,
                         joke_content=gemini_joke.joke_content,
-                        default_audio_id="",
+                        default_audio_url="",
+                        audio_urls=[],
                         scenarios=[request.scenario] if request.scenario else [],
                         age_range=[request.age_range] if request.age_range else [],
                         created_by_customer=False,
@@ -678,3 +681,67 @@ async def get_jokes(
             detail=f"Failed to get jokes: {str(e)}"
         )
 
+        
+@router.get("/jokes/{joke_id}/audio")
+async def get_audio_for_joke(joke_id: str):
+    """
+    Get the audio URL for a joke.
+    First tries to get the default audio URL from the joke.
+    If not found, generates audio using Gemini TTS.
+    Returns the audio URL and saves it asynchronously to the joke document.
+    """
+    try:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Getting audio for joke {joke_id}")
+        # First, try to get the default audio URL from the joke
+        audio_url = FirebaseService.get_default_audio(joke_id)
+        
+        if audio_url:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Got default audio for joke {joke_id}: {audio_url}")
+            return {"audio_url": audio_url, "joke_id": joke_id}
+        
+        # If no audio URL found, get the joke to generate audio
+        joke = FirebaseService.get_joke_by_id(joke_id)
+        if not joke:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Joke with ID {joke_id} not found"
+            )
+        
+        # Generate audio using Gemini TTS
+        audio_url = GeminiService.generate_audio_for_joke(joke_id, joke.joke_setup, joke.joke_punchline)
+        
+        if not audio_url:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate audio for joke"
+            )
+        
+        # Save the audio URL as default_audio_url to the joke document and insert to joke_audios collection asynchronously
+        from firebase.firebase_init import get_firestore
+        
+        def save_audio_url_async():
+            try:
+                db = get_firestore()
+                # Update the joke document with default_audio_url
+                db.collection('jokes').document(joke_id).update({
+                    'default_audio_url': audio_url
+                })
+                # Insert/update entry in joke_audios collection
+                db.collection('joke_audios').document(joke_id).set({
+                    'audio_url': audio_url
+                })
+            except Exception as e:
+                print(f"Error saving audio URL asynchronously: {str(e)}")
+        
+        thread = threading.Thread(target=save_audio_url_async, daemon=True)
+        thread.start()
+        
+        return {"audio_url": audio_url, "joke_id": joke_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get audio for joke: {str(e)}"
+        )

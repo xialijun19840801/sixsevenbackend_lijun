@@ -49,18 +49,22 @@ async def health_check():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
-    import google.generativeai as genai
+    import google.genai as genai
     from firebase.config import GEMINI_API_KEY
     
     # Configure Gemini API
     if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
+        client = genai.Client(api_key=GEMINI_API_KEY)
         
         # List all available models
         print("\n=== Available Gemini Models ===")
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                print(f"Model Name: {m.name}")
+        try:
+            models = client.models.list()
+            for m in models:
+                if hasattr(m, 'supported_generation_methods') and 'generateContent' in m.supported_generation_methods:
+                    print(f"Model Name: {m.name}")
+        except Exception as e:
+            print(f"Error listing models: {e}")
         print("===============================\n")
     else:
         print("Warning: GEMINI_API_KEY not set. Cannot list models.")

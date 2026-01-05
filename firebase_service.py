@@ -17,7 +17,8 @@ class FirebaseService:
         joke_punchline: str,
         creator_id: str,
         joke_content: Optional[str] = "",
-        default_audio_id: Optional[str] = "",
+        default_audio_url: Optional[str] = "",
+        audio_urls: Optional[List[str]] = None,
         scenarios: Optional[List[str]] = None,
         age_range: Optional[List[str]] = None
     ) -> str:
@@ -27,7 +28,8 @@ class FirebaseService:
             'joke_setup': joke_setup,
             'joke_punchline': joke_punchline,
             'joke_content': joke_content,
-            'default_audio_id': default_audio_id,
+            'default_audio_url': default_audio_url,
+            'audio_urls': audio_urls or [],
             'scenarios': scenarios or [],
             'age_range': age_range or [],
             'created_by_customer': True,
@@ -93,7 +95,8 @@ class FirebaseService:
                 joke_setup=data.get('joke_setup', ''),
                 joke_punchline=data.get('joke_punchline', ''),
                 joke_content=data.get('joke_content', ''),
-                default_audio_id=data.get('default_audio_id', ''),
+                default_audio_url=data.get('default_audio_url', data.get('default_audio_id', '')),  # Support old field name for backward compatibility
+                audio_urls=data.get('audio_urls', data.get('audio_ids', [])),  # Support old field name for backward compatibility
                 scenarios=data.get('scenarios', []),
                 age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                 created_by_customer=data.get('created_by_customer', False),
@@ -139,7 +142,8 @@ class FirebaseService:
                     joke_setup=data.get('joke_setup', ''),
                     joke_punchline=data.get('joke_punchline', ''),
                     joke_content=data.get('joke_content', ''),
-                    default_audio_id=data.get('default_audio_id', ''),
+                    default_audio_url=data.get('default_audio_url', ''),  # Support old field name for backward compatibility
+                    audio_urls=data.get('audio_urls', []),  # Support old field name for backward compatibility
                     scenarios=data.get('scenarios', []),
                     age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                     created_by_customer=data.get('created_by_customer', False),
@@ -210,6 +214,7 @@ class FirebaseService:
                     joke_punchline=data.get('joke_punchline', ''),
                     joke_content=data.get('joke_content', ''),
                     default_audio_id=data.get('default_audio_id', ''),
+                    audio_ids=data.get('audio_ids', []),
                     scenarios=data.get('scenarios', []),
                     age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                     created_by_customer=data.get('created_by_customer', False),
@@ -467,7 +472,8 @@ class FirebaseService:
                     joke_setup=data.get('joke_setup', ''),
                     joke_punchline=data.get('joke_punchline', ''),
                     joke_content=data.get('joke_content', ''),
-                    default_audio_id=data.get('default_audio_id', ''),
+                    default_audio_url=data.get('default_audio_url', data.get('default_audio_id', '')),  # Support old field name for backward compatibility
+                    audio_urls=data.get('audio_urls', data.get('audio_ids', [])),  # Support old field name for backward compatibility
                     scenarios=data.get('scenarios', []),
                     age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                     created_by_customer=data.get('created_by_customer', False),
@@ -516,7 +522,8 @@ class FirebaseService:
                 joke_setup=data.get('joke_setup', ''),
                 joke_punchline=data.get('joke_punchline', ''),
                 joke_content=data.get('joke_content', ''),
-                default_audio_id=data.get('default_audio_id', ''),
+                default_audio_url=data.get('default_audio_url', ''),  # Support old field name for backward compatibility
+                audio_urls=data.get('audio_urls', []),  # Support old field name for backward compatibility
                 scenarios=data.get('scenarios', []),
                 age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                 created_by_customer=data.get('created_by_customer', False),
@@ -647,7 +654,8 @@ class FirebaseService:
             joke_setup=data.get('joke_setup', ''),
             joke_punchline=data.get('joke_punchline', ''),
             joke_content=data.get('joke_content', ''),
-            default_audio_id=data.get('default_audio_id', ''),
+            default_audio_url=data.get('default_audio_url', data.get('default_audio_id', '')),  # Support old field name for backward compatibility
+            audio_urls=data.get('audio_urls', data.get('audio_ids', [])),  # Support old field name for backward compatibility
             scenarios=data.get('scenarios', []),
             age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
             created_by_customer=data.get('created_by_customer', False),
@@ -701,6 +709,37 @@ class FirebaseService:
         return jokes
     
     @staticmethod
+    def get_default_audio(joke_id: str) -> Optional[str]:
+        """
+        Get the audio URL for a joke and save it to the joke_audios collection.
+        
+        Args:
+            joke_id: The ID of the joke
+        
+        Returns:
+            str: The audio URL for the joke, or None if not found
+        """
+        db = _get_db()
+        
+        # Get the joke document to retrieve the audio URL
+        joke_ref = db.collection('jokes').document(joke_id)
+        joke_doc = joke_ref.get()
+        
+        if not joke_doc.exists:
+            return None
+        
+        joke_data = joke_doc.to_dict()
+        
+        # Get audio URL
+        audio_url = joke_data.get('default_audio_url')
+        
+        if audio_url:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Getting default audio for joke {joke_id}: {audio_url}")
+            return audio_url
+            
+        return None
+    
+    @staticmethod
     def save_jokes_async(jokes: List[dict], creator_id: str = "gemini"):
         """Save jokes to database asynchronously (for background tasks), skipping duplicates"""
         db = _get_db()
@@ -740,7 +779,8 @@ class FirebaseService:
                     'joke_setup': joke_setup,
                     'joke_punchline': joke_punchline,
                     'joke_content': joke_data.get('joke_content', ''),
-                    'default_audio_id': joke_data.get('default_audio_id', ''),
+                    'default_audio_url': joke_data.get('default_audio_url', ''),
+                    'audio_urls': joke_data.get('audio_urls', []),
                     'scenarios': new_scenarios,
                     'age_range': new_age_range,
                     'created_by_customer': False,
@@ -802,6 +842,7 @@ class FirebaseService:
                     joke_punchline=data.get('joke_punchline', ''),
                     joke_content=data.get('joke_content', ''),
                     default_audio_id=data.get('default_audio_id', ''),
+                    audio_ids=data.get('audio_ids', []),
                     scenarios=data.get('scenarios', []),
                     age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                     created_by_customer=data.get('created_by_customer', False),

@@ -459,6 +459,34 @@ header h1 {
     box-shadow: 0 2px 4px rgba(245, 101, 101, 0.5) inset;
 }
 
+.btn-play-audio {
+    background: #4299e1;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    flex: 1;
+    min-width: 100px;
+    border: 2px solid transparent;
+}
+
+.btn-play-audio:hover {
+    background: #3182ce;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(66, 153, 225, 0.3);
+}
+
+.btn-play-audio:disabled {
+    background: #a0aec0;
+    cursor: not-allowed;
+    opacity: 0.6;
+    transform: none;
+}
+
 .btn-delete {
     background: #f56565;
     color: white;
