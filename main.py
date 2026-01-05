@@ -5,7 +5,12 @@ from firebase.firebase_init import initialize_firebase
 from routes import router
 
 # Initialize Firebase
-initialize_firebase()
+print("--- Starting API ---")
+try:
+    initialize_firebase()
+    print("--- Firebase Initialized ---")
+except Exception as e:
+    print(f"--- Firebase Failed: {e} ---")
 
 # Create FastAPI app
 app = FastAPI(

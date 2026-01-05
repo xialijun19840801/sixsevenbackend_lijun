@@ -18,6 +18,7 @@ def initialize_firebase():
     
     return firestore.client(), storage.bucket()
 
+
 # Get Firestore client
 def get_firestore():
     return firestore.client()

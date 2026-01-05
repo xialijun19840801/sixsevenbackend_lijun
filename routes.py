@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel
-from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse
+from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse
 from firebase_service import FirebaseService
-from firebase.auth import get_current_user_id
+from firebase.auth import get_current_user_id, get_optional_user_id
 from firebase_admin import auth
+from gemini_service import GeminiService
+from typing import Optional
 
 router = APIRouter()
 
@@ -88,6 +90,62 @@ async def get_all_jokes():
             detail=f"Failed to get jokes: {str(e)}"
         )
 
+@router.get("/users/{user_id}/favorites", response_model=JokeListResponse)
+async def get_favorite_jokes(
+    user_id: str,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get all favorite jokes for a user (requires authentication)
+    User can only view their own favorites
+    """
+    try:
+        # Verify user is viewing their own favorites
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own favorites"
+            )
+        
+        # Get favorite jokes
+        jokes = FirebaseService.get_favorite_jokes(user_id)
+        return JokeListResponse(jokes=jokes)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get favorite jokes: {str(e)}"
+        )
+
+@router.get("/users/{user_id}/created-jokes", response_model=JokeListResponse)
+async def get_user_created_jokes(
+    user_id: str,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get all jokes created by a user (requires authentication)
+    User can only view their own created jokes
+    """
+    try:
+        # Verify user is viewing their own created jokes
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own created jokes"
+            )
+        
+        # Get created jokes
+        jokes = FirebaseService.get_user_created_jokes(user_id)
+        return JokeListResponse(jokes=jokes)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get created jokes: {str(e)}"
+        )
+
 @router.post("/users/{user_id}/favorites", response_model=FavoriteResponse)
 async def add_to_favorite_jokes(
     user_id: str,
@@ -142,7 +200,7 @@ async def add_to_favorite_jokes(
             )
 
 @router.delete("/users/{user_id}/created-jokes/{joke_id}", response_model=DeleteJokeResponse)
-async def delete_joke_from_created_by_user(
+async def delete_user_created_joke(
     user_id: str,
     joke_id: str,
     current_user_id: str = Depends(get_current_user_id)
@@ -177,7 +235,7 @@ async def delete_joke_from_created_by_user(
             )
         
         # Remove from user's creation_history
-        deleted = FirebaseService.delete_user_created_jokes(user_id, joke_id)
+        deleted = FirebaseService.delete_user_created_joke(user_id, joke_id)
         
         if deleted:
             return DeleteJokeResponse(
@@ -253,6 +311,62 @@ async def delete_favorite_jokes(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to delete from favorites: {str(e)}"
             )
+
+@router.get("/users/{user_id}/liked-jokes", response_model=JokeListResponse)
+async def get_liked_jokes(
+    user_id: str,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get all liked jokes for a user (requires authentication)
+    User can only view their own liked jokes
+    """
+    try:
+        # Verify user is viewing their own liked jokes
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own liked jokes"
+            )
+
+        # Get liked jokes
+        jokes = FirebaseService.get_liked_jokes(user_id)
+        return JokeListResponse(jokes=jokes)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get liked jokes: {str(e)}"
+        )
+
+@router.get("/users/{user_id}/disliked-jokes", response_model=JokeListResponse)
+async def get_disliked_jokes(
+    user_id: str,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get all disliked jokes for a user (requires authentication)
+    User can only view their own disliked jokes
+    """
+    try:
+        # Verify user is viewing their own disliked jokes
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own disliked jokes"
+            )
+
+        # Get disliked jokes
+        jokes = FirebaseService.get_disliked_jokes(user_id)
+        return JokeListResponse(jokes=jokes)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get disliked jokes: {str(e)}"
+        )
 
 @router.post("/users/{user_id}/like-history/{joke_id}", response_model=LikeDislikeResponse)
 async def add_to_user_liked_history(
@@ -342,5 +456,69 @@ async def add_to_user_dislike_history(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to add to dislike history: {str(e)}"
+        )
+
+@router.post("/jokes/generate", response_model=GeminiJokeResponse)
+async def generate_jokes_with_gemini(
+    request: GeminiJokeRequest,
+    current_user_id: Optional[str] = Depends(get_optional_user_id)
+):
+    """
+    Generate 10 jokes using Gemini AI based on age range and scenario.
+    If authenticated, personalizes jokes based on user's liked/disliked history.
+    Works without authentication for generic joke generation.
+    """
+    try:
+        liked_jokes_dict = None
+        disliked_jokes_dict = None
+        
+        # If user is authenticated, get their preferences
+        if current_user_id:
+            # Get user's liked and disliked jokes for personalization
+            liked_jokes = FirebaseService.get_liked_jokes(current_user_id)
+            disliked_jokes = FirebaseService.get_disliked_jokes(current_user_id)
+            
+            # Convert to dictionaries for Gemini service
+            if liked_jokes:
+                liked_jokes_dict = [
+                    {
+                        "joke_setup": joke.joke_setup,
+                        "joke_punchline": joke.joke_punchline,
+                        "joke_content": joke.joke_content
+                    }
+                    for joke in liked_jokes
+                ]
+            
+            if disliked_jokes:
+                disliked_jokes_dict = [
+                    {
+                        "joke_setup": joke.joke_setup,
+                        "joke_punchline": joke.joke_punchline,
+                        "joke_content": joke.joke_content
+                    }
+                    for joke in disliked_jokes
+                ]
+        
+        # Generate jokes using Gemini with user preferences (if available)
+        jokes = GeminiService.generate_jokes(
+            age_range=request.age_range,
+            scenario=request.scenario,
+            num_jokes=10,
+            liked_jokes=liked_jokes_dict,
+            disliked_jokes=disliked_jokes_dict
+        )
+        
+        return GeminiJokeResponse(jokes=jokes)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate jokes: {str(e)}"
         )
 

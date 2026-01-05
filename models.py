@@ -50,3 +50,15 @@ class LikeDislikeResponse(BaseModel):
     joke_id: str
     user_id: str
 
+class GeminiJokeRequest(BaseModel):
+    age_range: str  # e.g., "5-10", "10-15", "adult"
+    scenario: str   # e.g., "school", "family", "animals"
+
+class GeminiJokeItem(BaseModel):
+    joke_setup: str
+    joke_punchline: str
+    joke_content: Optional[str] = ""
+
+class GeminiJokeResponse(BaseModel):
+    jokes: List[GeminiJokeItem]
+

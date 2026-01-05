@@ -37,9 +37,21 @@
                     // Use email or displayName for Google users
                     const displayName = user.email || user.displayName || 'User';
                     updateUI(true, displayName);
+                    // Show tabs for logged in users
+                    if (window.updateTabsVisibility) {
+                        window.updateTabsVisibility();
+                    }
                     // Reload jokes to show favorite buttons
                     if (window.loadJokes) {
-                        window.loadJokes();
+                        // Load jokes based on current tab
+                        setTimeout(() => {
+                            if (window.switchTab) {
+                                const currentTab = window.currentTab || 'all';
+                                window.switchTab(currentTab);
+                            } else {
+                                window.loadJokes();
+                            }
+                        }, 100);
                     }
                 });
             } else {
@@ -47,7 +59,14 @@
                 updateUI(false);
                 // Reload jokes to hide favorite buttons
                 if (window.loadJokes) {
-                    window.loadJokes();
+                    if (window.updateTabsVisibility) {
+                        window.updateTabsVisibility();
+                    }
+                    if (window.switchTab) {
+                        window.switchTab('all');
+                    } else {
+                        window.loadJokes();
+                    }
                 }
             }
         });
@@ -166,9 +185,16 @@
 
         <!-- Jokes List Section -->
         <section class="section">
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('all')" id="tab-all">All Jokes</button>
+                <button class="tab-btn" onclick="switchTab('created')" id="tab-created" style="display: none;">My Created Jokes</button>
+                <button class="tab-btn" onclick="switchTab('favorites')" id="tab-favorites" style="display: none;">My Favorites</button>
+                <button class="tab-btn" onclick="switchTab('liked')" id="tab-liked" style="display: none;">Liked History</button>
+                <button class="tab-btn" onclick="switchTab('disliked')" id="tab-disliked" style="display: none;">Disliked History</button>
+            </div>
             <div class="section-header">
-                <h2>All Jokes</h2>
-                <button onclick="loadJokes()" class="btn btn-secondary">Refresh</button>
+                <h2 id="sectionTitle">All Jokes</h2>
+                <button onclick="refreshCurrentTab()" class="btn btn-secondary">Refresh</button>
             </div>
             <div id="jokesList" class="jokes-list">
                 <div class="loading">Loading jokes...</div>
