@@ -9,7 +9,7 @@ class JokeCreate(BaseModel):
     joke_content: Optional[str] = ""
     default_audio_id: Optional[str] = ""
     scenarios: Optional[List[str]] = []
-    ages: Optional[List[int]] = []
+    age_range: Optional[List[str]] = []
 
 # Response Models
 class JokeResponse(BaseModel):
@@ -19,7 +19,7 @@ class JokeResponse(BaseModel):
     joke_content: Optional[str] = ""
     default_audio_id: Optional[str] = ""
     scenarios: Optional[List[str]] = []
-    ages: Optional[List[int]] = []
+    age_range: Optional[List[str]] = []
     created_by_customer: bool
     creator_id: str
     created_at: Optional[datetime] = None

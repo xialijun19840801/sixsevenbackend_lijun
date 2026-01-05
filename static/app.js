@@ -7,12 +7,15 @@ window.currentTab = currentTab;
 // Update UI based on login status
 function updateAddJokeSection() {
     const addJokeSection = document.getElementById('addJokeSection');
+    const getJokesSection = document.getElementById('getJokesSection');
     if (window.currentUserToken) {
         addJokeSection.style.display = 'block';
+        getJokesSection.style.display = 'block';
         // Show tabs for logged in users
         updateTabsVisibility();
     } else {
         addJokeSection.style.display = 'none';
+        getJokesSection.style.display = 'none';
         // Hide user-specific tabs
         updateTabsVisibility();
         // Switch to all jokes tab
@@ -310,7 +313,7 @@ async function handleAddJoke(event) {
                 joke_content: "",
                 default_audio_id: "",
                 scenarios: [],
-                ages: []
+                age_range: []
             })
         });
         
@@ -348,15 +351,15 @@ async function loadJokes() {
 }
 
 // Display Jokes
-function displayJokes(jokes) {
-    const jokesList = document.getElementById('jokesList');
+function displayJokes(jokes, container = null) {
+    const targetContainer = container || document.getElementById('jokesList');
     
     if (jokes.length === 0) {
-        jokesList.innerHTML = '<div class="no-jokes">No jokes yet. Be the first to add one!</div>';
+        targetContainer.innerHTML = '<div class="no-jokes">No jokes yet. Be the first to add one!</div>';
         return;
     }
     
-    jokesList.innerHTML = jokes.map(joke => `
+    targetContainer.innerHTML = jokes.map(joke => `
         <div class="joke-card">
             <div class="joke-setup">${escapeHtml(joke.joke_setup || '')}</div>
             <div class="joke-punchline">${escapeHtml(joke.joke_punchline || '')}</div>
@@ -774,6 +777,69 @@ async function loadDislikedJokes() {
     }
 }
 
+// Handle Get Jokes
+async function handleGetJokes(event) {
+    event.preventDefault();
+    
+    if (!window.currentUserToken || !window.firebaseAuth || !window.firebaseAuth.currentUser) {
+        alert('Please login first');
+        return;
+    }
+    
+    const ageRange = document.getElementById('ageRange').value.trim();
+    const scenario = document.getElementById('scenario').value.trim();
+    const errorDiv = document.getElementById('getJokesError');
+    const successDiv = document.getElementById('getJokesSuccess');
+    const resultsDiv = document.getElementById('getJokesResults');
+    const jokesListDiv = document.getElementById('getJokesList');
+    
+    errorDiv.textContent = '';
+    successDiv.textContent = '';
+    resultsDiv.style.display = 'none';
+    jokesListDiv.innerHTML = '<div class="loading">Getting personalized jokes...</div>';
+    
+    if (!ageRange || !scenario) {
+        errorDiv.textContent = 'Please enter both age range and scenario';
+        return;
+    }
+    
+    const userId = window.firebaseAuth.currentUser.uid;
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}/jokes/get`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${window.currentUserToken}`
+            },
+            body: JSON.stringify({
+                age_range: ageRange,
+                scenario: scenario
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            successDiv.textContent = `Found ${data.jokes.length} personalized jokes!`;
+            resultsDiv.style.display = 'block';
+            
+            // Display the jokes
+            if (data.jokes && data.jokes.length > 0) {
+                displayJokes(data.jokes, jokesListDiv);
+            } else {
+                jokesListDiv.innerHTML = '<div class="no-jokes">No jokes found. Try different age range or scenario.</div>';
+            }
+        } else {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to get jokes');
+        }
+    } catch (error) {
+        console.error('Get jokes error:', error);
+        errorDiv.textContent = 'Error: ' + error.message;
+        resultsDiv.style.display = 'none';
+    }
+}
+
 // Make functions available globally for auth state changes
 window.loadJokes = loadJokes;
 window.loadUserCreatedJokes = loadUserCreatedJokes;
@@ -783,6 +849,7 @@ window.loadDislikedJokes = loadDislikedJokes;
 window.switchTab = switchTab;
 window.refreshCurrentTab = refreshCurrentTab;
 window.updateTabsVisibility = updateTabsVisibility;
+window.handleGetJokes = handleGetJokes;
 
 // Load jokes on page load
 window.addEventListener('load', () => {

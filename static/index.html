@@ -183,6 +183,30 @@
             </form>
         </section>
 
+        <!-- Get Jokes Section (when logged in) -->
+        <section id="getJokesSection" class="section" style="display: none;">
+            <h2>Get Personalized Jokes</h2>
+            <form id="getJokesForm" onsubmit="handleGetJokes(event)">
+                <div class="form-group">
+                    <label for="ageRange">Age Range:</label>
+                    <input type="text" id="ageRange" required placeholder="e.g., 5-8, 8-12, all ages" value="5-8">
+                    <small class="form-hint">Enter age range like "5-8", "8-12", or "all ages"</small>
+                </div>
+                <div class="form-group">
+                    <label for="scenario">Scenario:</label>
+                    <input type="text" id="scenario" required placeholder="e.g., school, family, vacation" value="school">
+                    <small class="form-hint">Enter scenario/context for the jokes</small>
+                </div>
+                <button type="submit" class="btn btn-primary">Get Jokes</button>
+                <div id="getJokesError" class="error-message"></div>
+                <div id="getJokesSuccess" class="success-message"></div>
+            </form>
+            <div id="getJokesResults" class="jokes-list" style="margin-top: 20px; display: none;">
+                <h3>Recommended Jokes</h3>
+                <div id="getJokesList"></div>
+            </div>
+        </section>
+
         <!-- Jokes List Section -->
         <section class="section">
             <div class="tabs">

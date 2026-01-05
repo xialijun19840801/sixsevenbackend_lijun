@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from pydantic import BaseModel
 from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse
 from firebase_service import FirebaseService
@@ -6,6 +6,8 @@ from firebase.auth import get_current_user_id, get_optional_user_id
 from firebase_admin import auth
 from gemini_service import GeminiService
 from typing import Optional
+from datetime import datetime
+import random
 
 router = APIRouter()
 
@@ -56,7 +58,7 @@ async def add_joke(
             joke_content=joke.joke_content,
             default_audio_id=joke.default_audio_id,
             scenarios=joke.scenarios,
-            ages=joke.ages
+            age_range=joke.age_range
         )
         
         # Get the created joke to return
@@ -520,5 +522,155 @@ async def generate_jokes_with_gemini(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate jokes: {str(e)}"
+        )
+
+class GetJokesRequest(BaseModel):
+    age_range: str
+    scenario: str
+
+@router.post("/users/{user_id}/jokes/get", response_model=JokeListResponse)
+async def get_jokes(
+    user_id: str,
+    request: GetJokesRequest,
+    background_tasks: BackgroundTasks,
+    current_user_id: Optional[str] = Depends(get_optional_user_id)
+):
+    """
+    Get jokes for a user based on age range and scenario.
+    Filters out liked, disliked, and favorited jokes.
+    If not enough jokes remain, generates new ones from Gemini.
+    """
+    try:
+        # Verify user is accessing their own data
+        if current_user_id and user_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only get jokes for your own account"
+            )
+        
+        # Get user's liked, disliked, and favorite joke IDs
+        liked_jokes = FirebaseService.get_liked_jokes(user_id)
+        disliked_jokes = FirebaseService.get_disliked_jokes(user_id)
+        favorite_jokes = FirebaseService.get_favorite_jokes(user_id)
+        
+        # Create sets of joke IDs to filter out
+        excluded_joke_ids = set()
+        for joke in liked_jokes:
+            excluded_joke_ids.add(joke.joke_id)
+        for joke in disliked_jokes:
+            excluded_joke_ids.add(joke.joke_id)
+        for joke in favorite_jokes:
+            excluded_joke_ids.add(joke.joke_id)
+        
+        # Get 20 random jokes from database
+        all_jokes = FirebaseService.get_random_jokes(limit=20)
+        
+        # Filter out excluded jokes
+        remaining_jokes = [joke for joke in all_jokes if joke.joke_id not in excluded_joke_ids]
+        
+        result_jokes = []
+        
+        if len(remaining_jokes) >= 10:
+            # Get 8 from remaining jokes
+            selected_remaining = random.sample(remaining_jokes, min(8, len(remaining_jokes)))
+            result_jokes.extend(selected_remaining)
+            
+            # Get 2 from liked jokes (if available)
+            if len(liked_jokes) > 0:
+                selected_liked = random.sample(liked_jokes, min(2, len(liked_jokes)))
+                result_jokes.extend(selected_liked)
+            
+            # If we still need more to reach 10, fill from remaining
+            while len(result_jokes) < 10 and len(remaining_jokes) > len(selected_remaining):
+                remaining_ids = {j.joke_id for j in selected_remaining}
+                more_remaining = [j for j in remaining_jokes if j.joke_id not in remaining_ids]
+                if more_remaining:
+                    result_jokes.append(random.choice(more_remaining))
+                    selected_remaining.append(result_jokes[-1])
+                else:
+                    break
+            
+            # Return exactly 10 jokes
+            return JokeListResponse(jokes=result_jokes[:10])
+        else:
+            # Not enough jokes remaining, generate from Gemini
+            try:
+                gemini_jokes = GeminiService.generate_jokes(
+                    age_range=request.age_range,
+                    scenario=request.scenario,
+                    num_jokes=10,
+                    liked_jokes=[
+                        {
+                            "joke_setup": joke.joke_setup,
+                            "joke_punchline": joke.joke_punchline,
+                            "joke_content": joke.joke_content
+                        }
+                        for joke in liked_jokes[:5]
+                    ] if liked_jokes else None,
+                    disliked_jokes=[
+                        {
+                            "joke_setup": joke.joke_setup,
+                            "joke_punchline": joke.joke_punchline,
+                            "joke_content": joke.joke_content
+                        }
+                        for joke in disliked_jokes[:5]
+                    ] if disliked_jokes else None
+                )
+                
+                # Convert Gemini jokes to JokeResponse format
+                result_jokes = []
+                for gemini_joke in gemini_jokes:
+                    # Create a temporary JokeResponse (without joke_id since not saved yet)
+                    joke_response = JokeResponse(
+                        joke_id="",  # Will be empty for new jokes
+                        joke_setup=gemini_joke.joke_setup,
+                        joke_punchline=gemini_joke.joke_punchline,
+                        joke_content=gemini_joke.joke_content,
+                        default_audio_id="",
+                        scenarios=[request.scenario] if request.scenario else [],
+                        age_range=[],
+                        created_by_customer=False,
+                        creator_id="gemini",
+                        created_at=datetime.utcnow()
+                    )
+                    result_jokes.append(joke_response)
+                
+                # Save jokes to database asynchronously in background
+                jokes_to_save = [
+                    {
+                        "joke_setup": joke.joke_setup,
+                        "joke_punchline": joke.joke_punchline,
+                        "joke_content": joke.joke_content,
+                        "scenarios": [request.scenario] if request.scenario else [],
+                        "age_range": []
+                    }
+                    for joke in gemini_jokes
+                ]
+                
+                # Run async save in background
+                background_tasks.add_task(
+                    FirebaseService.save_jokes_async,
+                    jokes_to_save,
+                    "gemini"
+                )
+                
+                return JokeListResponse(jokes=result_jokes)
+                
+            except Exception as gemini_error:
+                # If Gemini fails, return whatever we have
+                if remaining_jokes:
+                    return JokeListResponse(jokes=remaining_jokes[:10])
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"Failed to generate jokes from Gemini: {str(gemini_error)}"
+                    )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get jokes: {str(e)}"
         )
 

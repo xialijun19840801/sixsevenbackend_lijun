@@ -34,9 +34,11 @@ class GeminiService:
         # Configure Gemini
         genai.configure(api_key=GEMINI_API_KEY)
         
-        # Create the model
-        model = genai.GenerativeModel('gemini-pro')
-        
+        # Create the models
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        # Note: Model listing code removed - this was likely for debugging
+
         # Build preference context
         preference_context = ""
         if liked_jokes and len(liked_jokes) > 0:

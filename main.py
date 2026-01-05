@@ -43,6 +43,22 @@ async def health_check():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
+    import google.generativeai as genai
+    from firebase.config import GEMINI_API_KEY
+    
+    # Configure Gemini API
+    if GEMINI_API_KEY:
+        genai.configure(api_key=GEMINI_API_KEY)
+        
+        # List all available models
+        print("\n=== Available Gemini Models ===")
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                print(f"Model Name: {m.name}")
+        print("===============================\n")
+    else:
+        print("Warning: GEMINI_API_KEY not set. Cannot list models.")
+
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 

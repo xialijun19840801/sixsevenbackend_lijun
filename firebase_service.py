@@ -2,6 +2,7 @@ from firebase.firebase_init import get_firestore
 from models import JokeResponse
 from typing import List, Optional
 from datetime import datetime
+import random
 
 def _get_db():
     """Lazy initialization of Firestore client"""
@@ -17,7 +18,7 @@ class FirebaseService:
         joke_content: Optional[str] = "",
         default_audio_id: Optional[str] = "",
         scenarios: Optional[List[str]] = None,
-        ages: Optional[List[str]] = None
+        age_range: Optional[List[str]] = None
     ) -> str:
         """Add a new joke to Firestore and add it to user's creation_history"""
         db = _get_db()
@@ -27,7 +28,7 @@ class FirebaseService:
             'joke_content': joke_content,
             'default_audio_id': default_audio_id,
             'scenarios': scenarios or [],
-            'ages': ages or [],
+            'age_range': age_range or [],
             'created_by_customer': True,
             'creator_id': creator_id,
             'created_at': datetime.utcnow()
@@ -53,7 +54,7 @@ class FirebaseService:
                 'creation_history': [joke_id],
                 'voices': [],
                 'settings': {},
-                'age': '',
+                'age_range': '',
                 'scenario': '',
                 'voice_to_use': '',
                 'created_at': datetime.utcnow()
@@ -91,7 +92,7 @@ class FirebaseService:
                 joke_content=data.get('joke_content', ''),
                 default_audio_id=data.get('default_audio_id', ''),
                 scenarios=data.get('scenarios', []),
-                ages=data.get('ages', []),
+                age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                 created_by_customer=data.get('created_by_customer', False),
                 creator_id=data.get('creator_id', ''),
                 created_at=created_at
@@ -134,7 +135,7 @@ class FirebaseService:
                     joke_content=data.get('joke_content', ''),
                     default_audio_id=data.get('default_audio_id', ''),
                     scenarios=data.get('scenarios', []),
-                    ages=data.get('ages', []),
+                    age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                     created_by_customer=data.get('created_by_customer', False),
                     creator_id=data.get('creator_id', ''),
                     created_at=created_at
@@ -204,7 +205,7 @@ class FirebaseService:
                     joke_content=data.get('joke_content', ''),
                     default_audio_id=data.get('default_audio_id', ''),
                     scenarios=data.get('scenarios', []),
-                    ages=data.get('ages', []),
+                    age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                     created_by_customer=data.get('created_by_customer', False),
                     creator_id=data.get('creator_id', ''),
                     created_at=created_at
@@ -234,7 +235,7 @@ class FirebaseService:
                 'creation_history': [],
                 'voices': [],
                 'settings': {},
-                'age': '',
+                'age_range': '',
                 'scenario': '',
                 'voice_to_use': '',
                 'created_at': datetime.utcnow()
@@ -298,7 +299,7 @@ class FirebaseService:
                 'creation_history': [],
                 'voices': [],
                 'settings': {},
-                'age': '',
+                'age_range': '',
                 'scenario': '',
                 'voice_to_use': '',
                 'created_at': datetime.utcnow()
@@ -344,7 +345,7 @@ class FirebaseService:
                 'creation_history': [],
                 'voices': [],
                 'settings': {},
-                'age': '',
+                'age_range': '',
                 'scenario': '',
                 'voice_to_use': '',
                 'created_at': datetime.utcnow()
@@ -408,7 +409,7 @@ class FirebaseService:
                     joke_content=data.get('joke_content', ''),
                     default_audio_id=data.get('default_audio_id', ''),
                     scenarios=data.get('scenarios', []),
-                    ages=data.get('ages', []),
+                    age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                     created_by_customer=data.get('created_by_customer', False),
                     creator_id=data.get('creator_id', ''),
                     created_at=created_at
@@ -416,6 +417,93 @@ class FirebaseService:
                 jokes.append(joke)
         
         return jokes
+    
+    @staticmethod
+    def get_random_jokes(limit: int = 20) -> List[JokeResponse]:
+        """Get random jokes from Firestore"""
+        db = _get_db()
+        jokes_ref = db.collection('jokes')
+        docs = list(jokes_ref.stream())
+        
+        # Shuffle and take limit
+        random.shuffle(docs)
+        docs = docs[:limit]
+        
+        jokes = []
+        for doc in docs:
+            data = doc.to_dict()
+            created_at = data.get('created_at')
+            if hasattr(created_at, 'timestamp'):
+                created_at = datetime.fromtimestamp(created_at.timestamp())
+            
+            joke = JokeResponse(
+                joke_id=doc.id,
+                joke_setup=data.get('joke_setup', ''),
+                joke_punchline=data.get('joke_punchline', ''),
+                joke_content=data.get('joke_content', ''),
+                default_audio_id=data.get('default_audio_id', ''),
+                scenarios=data.get('scenarios', []),
+                age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
+                created_by_customer=data.get('created_by_customer', False),
+                creator_id=data.get('creator_id', ''),
+                created_at=created_at
+            )
+            jokes.append(joke)
+        
+        return jokes
+    
+    @staticmethod
+    def joke_exists(joke_setup: str, joke_punchline: str) -> bool:
+        """Check if a joke with the same setup and punchline already exists"""
+        db = _get_db()
+        jokes_ref = db.collection('jokes')
+        
+        # Query for jokes with matching setup and punchline
+        setup_query = jokes_ref.where('joke_setup', '==', joke_setup).stream()
+        for doc in setup_query:
+            data = doc.to_dict()
+            if data.get('joke_punchline', '').strip().lower() == joke_punchline.strip().lower():
+                return True
+        
+        return False
+    
+    @staticmethod
+    def save_jokes_async(jokes: List[dict], creator_id: str = "gemini"):
+        """Save jokes to database asynchronously (for background tasks), skipping duplicates"""
+        db = _get_db()
+        saved_count = 0
+        
+        for joke_data in jokes:
+            try:
+                # Check if joke already exists
+                if FirebaseService.joke_exists(
+                    joke_data.get('joke_setup', ''),
+                    joke_data.get('joke_punchline', '')
+                ):
+                    continue  # Skip duplicate
+                
+                # Create joke document
+                joke_doc = {
+                    'joke_setup': joke_data.get('joke_setup', ''),
+                    'joke_punchline': joke_data.get('joke_punchline', ''),
+                    'joke_content': joke_data.get('joke_content', ''),
+                    'default_audio_id': joke_data.get('default_audio_id', ''),
+                    'scenarios': joke_data.get('scenarios', []),
+                    'age_range': joke_data.get('age_range', []),
+                    'created_by_customer': False,
+                    'creator_id': creator_id,
+                    'created_at': datetime.utcnow()
+                }
+                
+                # Add to Firestore
+                db.collection('jokes').add(joke_doc)
+                saved_count += 1
+            except Exception as e:
+                print(f"Error saving joke: {str(e)}")
+                continue
+        
+        print(f"Saved {saved_count} new jokes to database")
+        return saved_count
     
     @staticmethod
     def get_disliked_jokes(user_id: str) -> List[JokeResponse]:
@@ -453,7 +541,7 @@ class FirebaseService:
                     joke_content=data.get('joke_content', ''),
                     default_audio_id=data.get('default_audio_id', ''),
                     scenarios=data.get('scenarios', []),
-                    ages=data.get('ages', []),
+                    age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                     created_by_customer=data.get('created_by_customer', False),
                     creator_id=data.get('creator_id', ''),
                     created_at=created_at
