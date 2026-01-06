@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from pydantic import BaseModel
-from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse, JokeAudioRequest, JokeAudioResponse
+from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse, JokeAudioRequest, JokeAudioResponse, VoiceCreate, VoiceResponse
 from firebase_service import FirebaseService
 from firebase.auth import get_current_user_id, get_optional_user_id
 from firebase_admin import auth
@@ -594,11 +594,11 @@ async def get_jokes(
             
             # Not enough jokes remaining, generate from Gemini
             try:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Getting {num_jokes} jokes from Gemini for user {user_id}, age_range: {request.age_range}, scenario: {request.scenario}")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Getting {num_jokes} jokes from Gemini for user {user_id}, age_range: {request.age_range}, scenario: {request.scenario}, better to get new jokes which user has not liked or disliked.")
                 
                 # Get random liked and disliked jokes for Gemini context (avoids full database scan)
-                liked_jokes_for_gemini = FirebaseService.get_random_liked_jokes(user_id, limit=5)
-                disliked_jokes_for_gemini = FirebaseService.get_random_disliked_jokes(user_id, limit=5)
+                liked_jokes_for_gemini = FirebaseService.get_random_liked_jokes(user_id, limit=10)
+                disliked_jokes_for_gemini = FirebaseService.get_random_disliked_jokes(user_id, limit=10)
                 
                 gemini_jokes = GeminiService.generate_jokes(
                     age_range=request.age_range,
@@ -738,4 +738,46 @@ async def get_audio_for_joke(joke_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get audio for joke: {str(e)}"
+        )
+
+@router.post("/voices", response_model=VoiceResponse)
+async def create_voice(
+    voice: VoiceCreate,
+    user_id: str = Depends(get_current_user_id)
+):
+    """
+    Create a new voice and save it to the voices collection.
+    Also updates the user's voices array.
+    Requires authentication.
+    """
+    try:
+        # Verify that the creator_id matches the authenticated user
+        if voice.creator_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Creator ID must match authenticated user"
+            )
+        
+        # Save voice to voices collection and update user
+        voice_data = FirebaseService.add_voice(
+            voice_id=voice.voice_id,
+            creator_id=voice.creator_id,
+            voice_name=voice.voice_name,
+            voice_url=voice.voice_url
+        )
+        
+        return VoiceResponse(
+            voice_id=voice_data['voice_id'],
+            creator_id=voice_data['creator_id'],
+            voice_name=voice_data['voice_name'],
+            voice_url=voice_data['voice_url'],
+            created_at=voice_data.get('created_at')
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create voice: {str(e)}"
         )

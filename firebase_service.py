@@ -973,3 +973,61 @@ class FirebaseService:
             print(f"Error uploading file to bucket at {file_path}: {str(e)}")
             raise
     
+    @staticmethod
+    def add_voice(voice_id: str, creator_id: str, voice_name: str, voice_url: str) -> Dict:
+        """
+        Add a voice to the voices collection and update the user's voices array.
+        
+        Args:
+            voice_id: UUID of the voice
+            creator_id: ID of the user creating the voice
+            voice_name: Name of the voice
+            voice_url: URL of the voice file
+        
+        Returns:
+            Dict containing the voice data
+        """
+        db = _get_db()
+        
+        # Prepare voice data
+        voice_data = {
+            'voice_id': voice_id,
+            'creator_id': creator_id,
+            'voice_name': voice_name,
+            'voice_url': voice_url,
+            'created_at': datetime.utcnow()
+        }
+        
+        # Save to voices collection (use voice_id as document ID)
+        db.collection('voices').document(voice_id).set(voice_data)
+        
+        # Update user's voices array
+        user_ref = db.collection('users').document(creator_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            # Create user document if it doesn't exist
+            user_data = {
+                'user_display_name': '',
+                'user_email': '',
+                'country': '',
+                'favorites': [],
+                'like_history': [],
+                'dislike_history': [],
+                'creation_history': [],
+                'voices': [voice_id],
+                'settings': {},
+                'age_range': '',
+                'scenario': '',
+                'voice_to_use': '',
+                'created_at': datetime.utcnow()
+            }
+            user_ref.set(user_data)
+        else:
+            # Update existing user document - add voice_id to voices array using ArrayUnion to avoid duplicates
+            user_ref.update({
+                'voices': ArrayUnion([voice_id])
+            })
+        
+        return voice_data
+    

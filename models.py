@@ -75,3 +75,16 @@ class JokeAudioResponse(BaseModel):
     setup_voice: str = "en-US-Neural2-F"
     punchline_voice: str = "en-US-Neural2-J"
 
+class VoiceCreate(BaseModel):
+    voice_id: str  # UUID
+    creator_id: str
+    voice_name: str
+    voice_url: str
+
+class VoiceResponse(BaseModel):
+    voice_id: str
+    creator_id: str
+    voice_name: str
+    voice_url: str
+    created_at: Optional[datetime] = None
+
