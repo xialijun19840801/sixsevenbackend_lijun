@@ -562,7 +562,8 @@ async def get_jokes(
         # Calculate how many jokes to get from remaining (num_jokes - 1)
         num_from_remaining = max(0, num_jokes - 1)
         
-        if len(remaining_jokes) >= num_from_remaining:
+        # Check if remaining_jokes is more than 70% of all_jokes
+        if len(all_jokes) > 0 and len(remaining_jokes) > 0.7 * len(all_jokes) and len(remaining_jokes) > num_from_remaining:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Returning {num_jokes} jokes: {num_from_remaining} from remaining, 1 from liked jokes")
             
             # Get num_jokes - 1 from remaining jokes
