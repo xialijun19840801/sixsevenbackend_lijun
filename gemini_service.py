@@ -5,6 +5,7 @@ from models import GeminiJokeItem
 from firebase.config import GEMINI_API_KEY
 from firebase.firebase_init import get_firestore
 from firebase_service import FirebaseService
+from datetime import datetime
 import json
 import re
 import base64
@@ -253,11 +254,13 @@ Return ONLY the JSON array, no additional text or explanation."""
             Character 2 (Man): {punchline}
             """
 
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Gemini start generate content for joke {joke_id}")
             response = client.models.generate_content(
                 model="gemini-2.5-flash-preview-tts",
                 contents=audio_prompt,
                 config=joke_config
             )
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Gemini finished generate content for joke {joke_id}")
             
             # 1. CHECK FOR ERROR/BLOCKING FIRST
             if hasattr(response, 'prompt_feedback') and response.prompt_feedback:

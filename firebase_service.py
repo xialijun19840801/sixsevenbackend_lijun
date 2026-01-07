@@ -13,13 +13,42 @@ def _get_db():
 class FirebaseService:
     
     @staticmethod
+    def _normalize_audio_urls(audio_urls_data):
+        """
+        Normalize audio_urls from old format (list of strings) to new format (list of dicts).
+        Handles backward compatibility.
+        
+        Args:
+            audio_urls_data: Can be a list of strings (old format) or list of dicts (new format)
+        
+        Returns:
+            List of dicts with format [{"voice_id": str, "audio_url": str}, ...]
+        """
+        if not audio_urls_data:
+            return []
+        
+        normalized = []
+        for item in audio_urls_data:
+            if isinstance(item, str):
+                # Old format: string -> convert to dict with default voice_id
+                normalized.append({"voice_id": "default", "audio_url": item})
+            elif isinstance(item, dict):
+                # New format: already a dict
+                normalized.append(item)
+            else:
+                # Skip invalid entries
+                continue
+        
+        return normalized
+    
+    @staticmethod
     def add_to_user_created_jokes(
         joke_setup: str,
         joke_punchline: str,
         creator_id: str,
         joke_content: Optional[str] = "",
         default_audio_url: Optional[str] = "",
-        audio_urls: Optional[List[str]] = None,
+        audio_urls: Optional[List[Dict[str, str]]] = None,
         scenarios: Optional[List[str]] = None,
         age_range: Optional[List[str]] = None
     ) -> str:
@@ -58,6 +87,7 @@ class FirebaseService:
                 'like_history': [],
                 'dislike_history': [],
                 'creation_history': [joke_id],
+                'joke_jar': [],
                 'voices': [],
                 'settings': {},
                 'age_range': '',
@@ -97,7 +127,7 @@ class FirebaseService:
                 joke_punchline=data.get('joke_punchline', ''),
                 joke_content=data.get('joke_content', ''),
                 default_audio_url=data.get('default_audio_url', data.get('default_audio_id', '')),  # Support old field name for backward compatibility
-                audio_urls=data.get('audio_urls', data.get('audio_ids', [])),  # Support old field name for backward compatibility
+                audio_urls=FirebaseService._normalize_audio_urls(data.get('audio_urls', data.get('audio_ids', []))),  # Support old field name for backward compatibility
                 scenarios=data.get('scenarios', []),
                 age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                 created_by_customer=data.get('created_by_customer', False),
@@ -252,11 +282,13 @@ class FirebaseService:
         favorite_ids = user_data.get('favorites', [])
         liked_ids = user_data.get('like_history', [])
         disliked_ids = user_data.get('dislike_history', [])
+        joke_jar_ids = user_data.get('joke_jar', [])
 
         return {
             'favorite_joke_ids': favorite_ids if favorite_ids else [],
             'liked_joke_ids': liked_ids if liked_ids else [],
-            'disliked_joke_ids': disliked_ids if disliked_ids else []
+            'disliked_joke_ids': disliked_ids if disliked_ids else [],
+            'joke_jar_ids': joke_jar_ids if joke_jar_ids else []
         }
 
     @staticmethod
@@ -278,6 +310,7 @@ class FirebaseService:
                 'like_history': [],
                 'dislike_history': [],
                 'creation_history': [],
+                'joke_jar': [],
                 'voices': [],
                 'settings': {},
                 'age_range': '',
@@ -348,6 +381,7 @@ class FirebaseService:
                 'like_history': [joke_id],
                 'dislike_history': [],
                 'creation_history': [],
+                'joke_jar': [],
                 'voices': [],
                 'settings': {},
                 'age_range': '',
@@ -401,6 +435,7 @@ class FirebaseService:
                 'like_history': [],
                 'dislike_history': [joke_id],
                 'creation_history': [],
+                'joke_jar': [],
                 'voices': [],
                 'settings': {},
                 'age_range': '',
@@ -474,7 +509,7 @@ class FirebaseService:
                     joke_punchline=data.get('joke_punchline', ''),
                     joke_content=data.get('joke_content', ''),
                     default_audio_url=data.get('default_audio_url', data.get('default_audio_id', '')),  # Support old field name for backward compatibility
-                    audio_urls=data.get('audio_urls', data.get('audio_ids', [])),  # Support old field name for backward compatibility
+                    audio_urls=FirebaseService._normalize_audio_urls(data.get('audio_urls', data.get('audio_ids', []))),  # Support old field name for backward compatibility
                     scenarios=data.get('scenarios', []),
                     age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
                     created_by_customer=data.get('created_by_customer', False),
@@ -904,7 +939,7 @@ class FirebaseService:
         return result
     
     @staticmethod
-    def save_audio_url_async(joke_id: str, audio_url: str, audio_size: int, is_default: bool = True):
+    def save_audio_url_async(joke_id: str, audio_url: str, audio_size: int, voice_id: str = "default", is_default: bool = True):
         """
         Save audio URL and metadata to Firestore asynchronously.
         Updates the joke document with default_audio_url if is_default is True.
@@ -914,15 +949,17 @@ class FirebaseService:
             joke_id: The ID of the joke
             audio_url: The URL of the audio file
             audio_size: The size of the audio file in bytes
+            voice_id: The ID of the voice used for this audio (defaults to "default")
             is_default: If True, update default_audio_url in the joke document. Defaults to True.
         """
         try:
             db = _get_db()
             joke_ref = db.collection('jokes').document(joke_id)
             
-            # Always add audio_url to audio_urls array (whether default or not)
+            # Always add audio_url to audio_urls array as a map of voice_id to audio_url
+            audio_entry = {"voice_id": voice_id, "audio_url": audio_url}
             joke_ref.update({
-                'audio_urls': ArrayUnion([audio_url])
+                'audio_urls': ArrayUnion([audio_entry])
             })
             
             # Update the joke document with default_audio_url only if is_default is True
@@ -936,6 +973,7 @@ class FirebaseService:
                 'joke_id': joke_id,
                 'audio_url': audio_url,
                 'audio_size': audio_size,
+                'voice_id': voice_id,
                 'created_at': datetime.utcnow()
             }, merge=True)
         except Exception as e:
@@ -1015,6 +1053,7 @@ class FirebaseService:
                 'like_history': [],
                 'dislike_history': [],
                 'creation_history': [],
+                'joke_jar': [],
                 'voices': [voice_id],
                 'settings': {},
                 'age_range': '',
@@ -1029,5 +1068,52 @@ class FirebaseService:
                 'voices': ArrayUnion([voice_id])
             })
         
-        return voice_data
+            return voice_data
+    
+    @staticmethod
+    def add_to_history(creator_id: str, joke_id: str) -> bool:
+        """
+        Add a joke_id to the user's joke_jar array.
+        
+        Args:
+            creator_id: ID of the user
+            joke_id: ID of the joke to add to joke_jar
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            db = _get_db()
+            user_ref = db.collection('users').document(creator_id)
+            user_doc = user_ref.get()
+            
+            if not user_doc.exists:
+                # Create user document if it doesn't exist
+                user_data = {
+                    'user_display_name': '',
+                    'user_email': '',
+                    'country': '',
+                    'favorites': [],
+                    'like_history': [],
+                    'dislike_history': [],
+                    'creation_history': [],
+                    'joke_jar': [joke_id],
+                    'voices': [],
+                    'settings': {},
+                    'age_range': '',
+                    'scenario': '',
+                    'voice_to_use': '',
+                    'created_at': datetime.utcnow()
+                }
+                user_ref.set(user_data)
+            else:
+                # Update existing user document - add joke_id to joke_jar array using ArrayUnion
+                user_ref.update({
+                    'joke_jar': ArrayUnion([joke_id])
+                })
+            
+            return True
+        except Exception as e:
+            print(f"Error adding to joke_jar for user {creator_id}: {str(e)}")
+            return False
     

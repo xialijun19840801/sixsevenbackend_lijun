@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 
 # Request Models
@@ -8,7 +8,7 @@ class JokeCreate(BaseModel):
     joke_punchline: str
     joke_content: Optional[str] = ""
     default_audio_url: Optional[str] = ""
-    audio_urls: Optional[List[str]] = []
+    audio_urls: Optional[List[Dict[str, str]]] = []
     scenarios: Optional[List[str]] = []
     age_range: Optional[List[str]] = []
 
@@ -19,7 +19,7 @@ class JokeResponse(BaseModel):
     joke_punchline: str
     joke_content: Optional[str] = ""
     default_audio_url: Optional[str] = ""
-    audio_urls: Optional[List[str]] = []
+    audio_urls: Optional[List[Dict[str, str]]] = []
     scenarios: Optional[List[str]] = []
     age_range: Optional[List[str]] = []
     created_by_customer: bool
@@ -87,4 +87,14 @@ class VoiceResponse(BaseModel):
     voice_name: str
     voice_url: str
     created_at: Optional[datetime] = None
+
+class JokeJarRequest(BaseModel):
+    creator_id: str
+    joke_id: str
+
+class JokeJarResponse(BaseModel):
+    message: str
+    success: bool
+    creator_id: str
+    joke_id: str
 

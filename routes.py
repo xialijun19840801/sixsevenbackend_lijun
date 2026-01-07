@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from pydantic import BaseModel
-from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse, JokeAudioRequest, JokeAudioResponse, VoiceCreate, VoiceResponse
+from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse, JokeAudioRequest, JokeAudioResponse, VoiceCreate, VoiceResponse, JokeJarRequest, JokeJarResponse
 from firebase_service import FirebaseService
 from firebase.auth import get_current_user_id, get_optional_user_id
 from firebase_admin import auth
@@ -532,14 +532,10 @@ async def get_jokes(
                 detail="You can only get jokes for your own account"
             )
         
-        # Get user's liked, disliked, and favorite joke IDs
+        # Get user's disliked, and joke_jar joke IDs
         user_joke_ids = FirebaseService.get_user_joke_ids(user_id)
-        favorite_joke_ids = user_joke_ids.get('favorite_joke_ids', [])
-        liked_joke_ids = user_joke_ids.get('liked_joke_ids', [])
         disliked_joke_ids = user_joke_ids.get('disliked_joke_ids', [])
-        
-        # Create set of joke IDs to filter out (combine all three lists)
-        excluded_joke_ids = set(favorite_joke_ids) | set(liked_joke_ids) | set(disliked_joke_ids)
+        joke_jar_ids = user_joke_ids.get('joke_jar_ids', [])
         
         # Get random jokes from database that match age_range and scenario
         num_jokes = request.num_jokes if request.num_jokes and request.num_jokes > 0 else 5
@@ -550,46 +546,47 @@ async def get_jokes(
         )
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Retrieved {len(all_jokes)} random jokes from database")
         
-        # Filter out excluded jokes
-        remaining_jokes = [joke for joke in all_jokes if joke.joke_id not in excluded_joke_ids]
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Remaining jokes: {len(remaining_jokes)}")
+        # Calculate fresh_jokes = all_jokes - joke_jar jokes
+        joke_jar_ids_set = set(joke_jar_ids)
+        fresh_jokes = [joke for joke in all_jokes if joke.joke_id not in joke_jar_ids_set]
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Fresh jokes (not in joke_jar): {len(fresh_jokes)}")
+        
+        # Calculate all_acceptable_jokes = all_jokes - disliked_jokes
+        disliked_joke_ids_set = set(disliked_joke_ids)
+        all_acceptable_jokes = [joke for joke in all_jokes if joke.joke_id not in disliked_joke_ids_set]
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Acceptable jokes (all_jokes - disliked): {len(all_acceptable_jokes)}")
         
         result_jokes = []
         
-        # Get 1 random liked joke (avoids full database scan)
-        liked_jokes = FirebaseService.get_random_liked_jokes(user_id, limit=1)
-        
-        # Calculate how many jokes to get from remaining (num_jokes - 1)
-        num_from_remaining = max(0, num_jokes - 1)
-        
-        # Check if remaining_jokes is more than 70% of all_jokes
-        if len(all_jokes) > 0 and len(remaining_jokes) > 0.7 * len(all_jokes) and len(remaining_jokes) > num_from_remaining:
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Returning {num_jokes} jokes: {num_from_remaining} from remaining, 1 from liked jokes")
+        # Check condition: len(fresh_jokes) >= num_jokes
+        if len(all_jokes) > 0 and len(fresh_jokes) >= num_jokes:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Condition met: enough fresh jokes")
             
-            # Get num_jokes - 1 from remaining jokes
-            selected_remaining = []
-            if num_from_remaining > 0:
-                selected_remaining = random.sample(remaining_jokes, min(num_from_remaining, len(remaining_jokes)))
-                result_jokes.extend(selected_remaining)
+            # Step 1: pick num_jokes from fresh_jokes
+            selected_fresh = random.sample(fresh_jokes, num_jokes)
+            selected_ids = {j.joke_id for j in selected_fresh}
             
-            # Get 1 from liked jokes (if available)
-            if len(liked_jokes) > 0:
-                selected_liked = random.sample(liked_jokes, min(1, len(liked_jokes)))
-                result_jokes.extend(selected_liked)
+            # Step 2: pick num_from_acceptable (1/4 of num_jokes, at least 1 if available) from all_acceptable_jokes excluding duplicates
+            num_from_acceptable = 0
+            selected_acceptable = []
+            if len(all_acceptable_jokes) > 0:
+                num_from_acceptable = max(1, int(num_jokes / 4))
+                acceptable_candidates = [j for j in all_acceptable_jokes if j.joke_id not in selected_ids]
+                if acceptable_candidates:
+                    selected_acceptable = random.sample(
+                        acceptable_candidates,
+                        min(num_from_acceptable, len(acceptable_candidates))
+                    )
             
-            # If we still need more (e.g., no liked jokes), fill from remaining
-            while len(result_jokes) < num_jokes:
-                remaining_ids = {j.joke_id for j in selected_remaining}
-                more_remaining = [j for j in remaining_jokes if j.joke_id not in remaining_ids]
-                if more_remaining:
-                    selected_joke = random.choice(more_remaining)
-                    result_jokes.append(selected_joke)
-                    selected_remaining.append(selected_joke)
-                else:
-                    break
+            # Step 3: combine, reshuffle, ensure no duplicates, and return num_jokes
+            combined = selected_fresh + selected_acceptable
+            unique_by_id = {}
+            for joke in combined:
+                unique_by_id[joke.joke_id] = joke
+            combined_unique = list(unique_by_id.values())
             
-            # Return exactly num_jokes jokes
-            return JokeListResponse(jokes=result_jokes[:num_jokes])
+            random.shuffle(combined_unique)
+            return JokeListResponse(jokes=combined_unique[:num_jokes])
         else:
             
             # Not enough jokes remaining, generate from Gemini
@@ -709,7 +706,9 @@ async def get_audio_for_joke(joke_id: str, background_tasks: BackgroundTasks):
             )
         
         # Generate audio using Gemini TTS (this now handles upload and DB save)
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Start generate audio with Gemini for joke {joke_id}")
         result = GeminiService.generate_audio_for_joke(joke_id, joke.joke_setup, joke.joke_punchline)
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Finished generate_audio_with_gemini for joke {joke_id}")
         
         if not result:
             raise HTTPException(
@@ -722,11 +721,13 @@ async def get_audio_for_joke(joke_id: str, background_tasks: BackgroundTasks):
         
         # Save the audio URL and metadata asynchronously using FirebaseService
         # is_default=True since this is the default audio for the joke
+        # voice_id="default" for the default Gemini voice
         background_tasks.add_task(
             FirebaseService.save_audio_url_async,
             joke_id,
             audio_url,
             audio_size,
+            "default",  # voice_id
             True  # is_default=True
         )
         
@@ -780,4 +781,48 @@ async def create_voice(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create voice: {str(e)}"
+        )
+
+@router.post("/history", response_model=JokeJarResponse)
+async def add_to_history(
+    request: JokeJarRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """
+    Add a joke to the user's joke_jar.
+    Requires authentication.
+    """
+    try:
+        # Verify that the creator_id matches the authenticated user
+        if request.creator_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Creator ID must match authenticated user"
+            )
+        
+        # Add joke_id to user's joke_jar
+        success = FirebaseService.add_to_joke_jar(
+            creator_id=request.creator_id,
+            joke_id=request.joke_id
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to add to joke_jar"
+            )
+        
+        return JokeJarResponse(
+            message="Successfully added to joke_jar",
+            success=True,
+            creator_id=request.creator_id,
+            joke_id=request.joke_id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add to joke_jar: {str(e)}"
         )
