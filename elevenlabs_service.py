@@ -3,8 +3,9 @@ import os
 import tempfile
 import wave
 import io
-from typing import Optional, Tuple
+from typing import Optional, Dict, Any
 from firebase.config import ELEVENLABS_API_KEY
+from firebase_service import FirebaseService
 
 class ElevenlabsService:
     """
@@ -201,16 +202,17 @@ class ElevenlabsService:
             # If conversion fails, return original data
             return pcm_data
     
-    def read_joke_with_the_voice(self, firebase_voice_url: str, joke_text: str) -> Tuple[bytes, str]:
+    def read_joke_with_the_voice(self, firebase_voice_url: str, joke_text: str, joke_id: str) -> Dict[str, Any]:
         """
-        Download voice, clone it, and generate audio for the joke text.
+        Download voice, clone it, generate audio for the joke text, and save to Firebase bucket.
         
         Args:
             firebase_voice_url: URL of the voice file in Firebase Storage
             joke_text: The joke text to convert to speech
+            joke_id: The ID of the joke
         
         Returns:
-            Tuple[bytes, str]: (audio_data in WAV format, cloned_voice_id)
+            Dict[str, any]: Dictionary with keys: audio_url, audio_size, elevenlabs_voice_id
         
         Raises:
             Exception: If any step fails
@@ -224,10 +226,20 @@ class ElevenlabsService:
             voice_name = os.path.basename(firebase_voice_url).split('.')[0] or "cloned_voice"
             voice_id = self._clone_voice(voice_data, voice_name)
             
-            # Step 3: Generate audio with the cloned voice
-            audio_data = self._generate_audio(joke_text, voice_id)
+            # Step 3: Generate audio with the cloned voice (already in WAV format)
+            wav_audio = self._generate_audio(joke_text, voice_id)
             
-            return audio_data, voice_id
+            # Step 4: Save to Firebase bucket
+            file_path = f"jokes_audio/{joke_id}/voice_{voice_id}.wav"
+            audio_url, audio_size = FirebaseService.save_to_bucket(file_path, wav_audio, content_type='audio/wav')
+            
+            print(f"[ElevenLabs] Successfully saved audio to bucket: {audio_url} (size: {audio_size} bytes)")
+            
+            return {
+                "audio_url": audio_url,
+                "audio_size": audio_size,
+                "elevenlabs_voice_id": voice_id
+            }
             
         except Exception as e:
             print(f"[ElevenLabs] Error in read_joke_with_the_voice: {str(e)}")

@@ -939,7 +939,7 @@ class FirebaseService:
         return result
     
     @staticmethod
-    def save_audio_url_async(joke_id: str, audio_url: str, audio_size: int, voice_id: str = "default", is_default: bool = True):
+    def save_audio_url_async(joke_id: str, audio_url: str, audio_size: int, voice_id: str = "default", elevenlabs_voice_id: str = "", is_default: bool = True):
         """
         Save audio URL and metadata to Firestore asynchronously.
         Updates the joke document with default_audio_url if is_default is True.
@@ -974,6 +974,7 @@ class FirebaseService:
                 'audio_url': audio_url,
                 'audio_size': audio_size,
                 'voice_id': voice_id,
+                'elevenlabs_voice_id': elevenlabs_voice_id,
                 'created_at': datetime.utcnow()
             }, merge=True)
         except Exception as e:
@@ -1010,6 +1011,56 @@ class FirebaseService:
         except Exception as e:
             print(f"Error uploading file to bucket at {file_path}: {str(e)}")
             raise
+    
+    @staticmethod
+    def get_audio_for_joke_and_voice(joke_id: str, voice_id: str) -> Optional[str]:
+        """
+        Get the audio URL for a joke with a specific voice from joke_audios collection.
+        
+        Args:
+            joke_id: The ID of the joke
+            voice_id: The ID of the voice
+        
+        Returns:
+            Optional[str]: The audio URL if found, None otherwise
+        """
+        try:
+            db = _get_db()
+            # Query joke_audios collection for matching joke_id and voice_id
+            query = db.collection('joke_audios').where('joke_id', '==', joke_id).where('voice_id', '==', voice_id).limit(1)
+            docs = query.stream()
+            
+            for doc in docs:
+                data = doc.to_dict()
+                audio_url = data.get('audio_url')
+                if audio_url:
+                    return audio_url
+            return None
+        except Exception as e:
+            print(f"Error getting audio for joke {joke_id} with voice {voice_id}: {str(e)}")
+            return None
+    
+    @staticmethod
+    def get_voice_by_id(voice_id: str) -> Optional[Dict]:
+        """
+        Get voice data by voice_id from the voices collection.
+        
+        Args:
+            voice_id: The ID of the voice
+        
+        Returns:
+            Optional[Dict]: Voice data including voice_url, or None if not found
+        """
+        try:
+            db = _get_db()
+            voice_doc = db.collection('voices').document(voice_id).get()
+            
+            if voice_doc.exists:
+                return voice_doc.to_dict()
+            return None
+        except Exception as e:
+            print(f"Error getting voice {voice_id}: {str(e)}")
+            return None
     
     @staticmethod
     def add_voice(voice_id: str, creator_id: str, voice_name: str, voice_url: str) -> Dict:

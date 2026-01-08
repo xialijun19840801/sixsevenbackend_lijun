@@ -5,6 +5,7 @@ from firebase_service import FirebaseService
 from firebase.auth import get_current_user_id, get_optional_user_id
 from firebase_admin import auth
 from gemini_service import GeminiService
+from elevenlabs_service import ElevenlabsService
 from typing import Optional
 from datetime import datetime
 import random
@@ -781,6 +782,103 @@ async def create_voice(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create voice: {str(e)}"
+        )
+
+@router.get("/jokes/{joke_id}/audio/{voice_id}")
+async def get_audio_for_joke_with_voice(joke_id: str, voice_id: str, background_tasks: BackgroundTasks):
+    """
+    Get the audio URL for a joke with a specific voice.
+    First checks if audio already exists in joke_audios collection.
+    If not found, generates audio using ElevenLabs with the specified voice.
+    Returns the audio URL and saves it asynchronously to the database.
+    """
+    try:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Getting audio for joke {joke_id} with voice {voice_id}")
+        
+        # Step 1: Check if audio already exists in joke_audios collection
+        existing_audio_url = FirebaseService.get_audio_for_joke_and_voice(joke_id, voice_id)
+        
+        if existing_audio_url:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Found existing audio for joke {joke_id} with voice {voice_id}: {existing_audio_url}")
+            return {"audio_url": existing_audio_url, "joke_id": joke_id, "voice_id": voice_id}
+        
+        # Step 2: Get the voice to retrieve voice_url
+        voice_data = FirebaseService.get_voice_by_id(voice_id)
+        if not voice_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Voice with ID {voice_id} not found"
+            )
+        
+        voice_url = voice_data.get('voice_url')
+        if not voice_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Voice {voice_id} does not have a voice_url"
+            )
+        
+        # Step 3: Get the joke to retrieve joke text
+        joke = FirebaseService.get_joke_by_id(joke_id)
+        if not joke:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Joke with ID {joke_id} not found"
+            )
+        
+        # Step 4: Create joke text from setup and punchline
+        joke_text = f"{joke.joke_setup}, {joke.joke_punchline}"
+        
+        # Step 5: Generate audio using ElevenLabs
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Start generating audio with ElevenLabs for joke {joke_id} with voice {voice_id}")
+        elevenlabs_service = ElevenlabsService()
+        result = elevenlabs_service.read_joke_with_the_voice(
+            firebase_voice_url=voice_url,
+            joke_text=joke_text,
+            joke_id=joke_id
+        )
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Finished generating audio with ElevenLabs for joke {joke_id}")
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate audio for joke with ElevenLabs"
+            )
+        
+        # Extract audio_url, audio_size, and elevenlabs_voice_id from result
+        audio_url = result.get("audio_url")
+        audio_size = result.get("audio_size")
+        elevenlabs_voice_id = result.get("elevenlabs_voice_id")
+        
+        if not audio_url or not audio_size:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to get audio URL or size from ElevenLabs"
+            )
+        
+        # Step 6: Save the audio URL and metadata asynchronously
+        # is_default=False since this is a custom voice, not the default
+        background_tasks.add_task(
+            FirebaseService.save_audio_url_async,
+            joke_id,
+            audio_url,
+            audio_size,
+            voice_id, 
+            elevenlabs_voice_id,
+            False  # is_default=False
+        )
+        
+        return {
+            "audio_url": audio_url,
+            "joke_id": joke_id,
+            "voice_id": voice_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get audio for joke with voice: {str(e)}"
         )
 
 @router.post("/history", response_model=JokeJarResponse)
