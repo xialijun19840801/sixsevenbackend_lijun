@@ -77,6 +77,10 @@ class ElevenlabsService:
                 # Prepare the request for voice cloning
                 url = f"{self.base_url}/voices/add"
                 
+                # Read the file content first
+                with open(temp_file_path, 'rb') as f:
+                    file_content = f.read()
+                
                 # ElevenLabs API expects files as a list in multipart form data
                 with open(temp_file_path, 'rb') as voice_file:
                     files = {
@@ -145,7 +149,7 @@ class ElevenlabsService:
             
             # Request WAV format explicitly
             params = {
-                "output_format": "pcm_44100"  # WAV format with 44.1kHz sample rate
+                "output_format": "pcm_24000"  # WAV format with 24kHz sample rate
             }
             
             response = requests.post(
@@ -171,13 +175,13 @@ class ElevenlabsService:
             print(f"[ElevenLabs] Error generating audio: {str(e)}")
             raise
     
-    def _convert_pcm_to_wav(self, pcm_data: bytes, sample_rate: int = 44100, channels: int = 1, sample_width: int = 2) -> bytes:
+    def _convert_pcm_to_wav(self, pcm_data: bytes, sample_rate: int = 24000, channels: int = 1, sample_width: int = 2) -> bytes:
         """
         Convert PCM audio data to WAV format.
         
         Args:
             pcm_data: Raw PCM audio data
-            sample_rate: Sample rate in Hz (default: 44100)
+            sample_rate: Sample rate in Hz (default: 24000)
             channels: Number of audio channels (default: 1 for mono)
             sample_width: Sample width in bytes (default: 2 for 16-bit)
         
