@@ -98,3 +98,10 @@ class JokeJarResponse(BaseModel):
     creator_id: str
     joke_id: str
 
+class VoiceItem(BaseModel):
+    voice_id: str
+    voice_name: str
+
+class VoiceListResponse(BaseModel):
+    voices: List[VoiceItem]
+

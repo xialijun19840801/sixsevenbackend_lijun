@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from pydantic import BaseModel
-from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse, JokeAudioRequest, JokeAudioResponse, VoiceCreate, VoiceResponse, JokeJarRequest, JokeJarResponse
+from models import JokeCreate, JokeResponse, JokeListResponse, LoginResponse, FavoriteResponse, DeleteJokeResponse, LikeDislikeResponse, GeminiJokeRequest, GeminiJokeResponse, JokeAudioRequest, JokeAudioResponse, VoiceCreate, VoiceResponse, JokeJarRequest, JokeJarResponse, VoiceListResponse, VoiceItem
 from firebase_service import FirebaseService
 from firebase.auth import get_current_user_id, get_optional_user_id
 from firebase_admin import auth
@@ -879,6 +879,29 @@ async def get_audio_for_joke_with_voice(joke_id: str, voice_id: str, background_
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get audio for joke with voice: {str(e)}"
+        )
+
+@router.get("/voices", response_model=VoiceListResponse)
+async def get_voices(user_id: str = Depends(get_current_user_id)):
+    """
+    Get all voices for the authenticated user.
+    Returns voice_id and voice_name for each voice.
+    Requires authentication.
+    """
+    try:
+        voices = FirebaseService.get_user_voices(user_id)
+        
+        # Convert to VoiceItem models
+        voice_items = [VoiceItem(voice_id=v['voice_id'], voice_name=v['voice_name']) for v in voices]
+        
+        return VoiceListResponse(voices=voice_items)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get voices: {str(e)}"
         )
 
 @router.post("/history", response_model=JokeJarResponse)

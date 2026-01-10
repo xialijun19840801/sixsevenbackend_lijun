@@ -969,7 +969,13 @@ class FirebaseService:
                 })
            
             # Insert/update entry in joke_audios collection (always save)
-            db.collection('joke_audios').document(joke_id).set({
+            # Document ID: joke_id_voice_id if voice_id exists and is not "default", otherwise use joke_id
+            if voice_id and voice_id != "default" and voice_id.strip():
+                doc_id = f"{joke_id}_{voice_id}"
+            else:
+                doc_id = joke_id
+            
+            db.collection('joke_audios').document(doc_id).set({
                 'joke_id': joke_id,
                 'audio_url': audio_url,
                 'audio_size': audio_size,
@@ -1026,11 +1032,16 @@ class FirebaseService:
         """
         try:
             db = _get_db()
-            # Query joke_audios collection for matching joke_id and voice_id
-            query = db.collection('joke_audios').where('joke_id', '==', joke_id).where('voice_id', '==', voice_id).limit(1)
-            docs = query.stream()
+            # Document ID: joke_id_voice_id if voice_id exists and is not "default", otherwise use joke_id
+            if voice_id and voice_id != "default" and voice_id.strip():
+                doc_id = f"{joke_id}_{voice_id}"
+            else:
+                doc_id = joke_id
             
-            for doc in docs:
+            # Get document directly by ID (more efficient than querying)
+            doc = db.collection('joke_audios').document(doc_id).get()
+            
+            if doc.exists:
                 data = doc.to_dict()
                 audio_url = data.get('audio_url')
                 if audio_url:
@@ -1061,6 +1072,48 @@ class FirebaseService:
         except Exception as e:
             print(f"Error getting voice {voice_id}: {str(e)}")
             return None
+    
+    @staticmethod
+    def get_user_voices(user_id: str) -> List[Dict[str, str]]:
+        """
+        Get all voices for a user. Returns voice_id and voice_name for each voice.
+        
+        Args:
+            user_id: The ID of the user
+        
+        Returns:
+            List[Dict[str, str]]: List of dictionaries with 'voice_id' and 'voice_name' keys
+        """
+        try:
+            db = _get_db()
+            user_ref = db.collection('users').document(user_id)
+            user_doc = user_ref.get()
+            
+            if not user_doc.exists:
+                return []
+            
+            user_data = user_doc.to_dict()
+            voice_ids = user_data.get('voices', [])
+            
+            if not voice_ids:
+                return []
+            
+            # Get voice details for each voice_id
+            voices_list = []
+            for voice_id in voice_ids:
+                voice_data = FirebaseService.get_voice_by_id(voice_id)
+                if voice_data:
+                    voices_list.append({
+                        'voice_id': voice_id,
+                        'voice_name': voice_data.get('voice_name', '')
+                    })
+            
+            return voices_list
+        except Exception as e:
+            print(f"Error getting voices for user {user_id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return []
     
     @staticmethod
     def add_voice(voice_id: str, creator_id: str, voice_name: str, voice_url: str) -> Dict:
