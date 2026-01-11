@@ -8,8 +8,9 @@ import os
 import sys
 from pathlib import Path
 
-# Add current directory to path to import modules
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to path to import modules (since we're in test/ subdirectory)
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
 
 from firebase.firebase_init import initialize_firebase
 from firebase_service import FirebaseService

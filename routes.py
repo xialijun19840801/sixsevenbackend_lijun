@@ -637,6 +637,7 @@ async def get_jokes(
                         audio_urls=[],
                         scenarios=[request.scenario] if request.scenario else [],
                         age_range=[request.age_range] if request.age_range else [],
+                        emoji=gemini_joke.emoji or "",
                         created_by_customer=False,
                         creator_id="gemini",
                         created_at=datetime.utcnow()
@@ -649,6 +650,7 @@ async def get_jokes(
                         "joke_setup": gemini_joke.joke_setup,
                         "joke_punchline": gemini_joke.joke_punchline,
                         "joke_content": gemini_joke.joke_content,
+                        "emoji": gemini_joke.emoji or "",
                         "scenarios": [request.scenario] if request.scenario else [],
                         "age_range": [request.age_range] if request.age_range else []
                     })

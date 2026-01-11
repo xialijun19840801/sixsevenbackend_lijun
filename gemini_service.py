@@ -15,6 +15,68 @@ import io
 class GeminiService:
     
     @staticmethod
+    def generate_emoji_for_joke(joke_id: str, setup: str, punchline: str) -> Optional[str]:
+        """
+        Generate an emoji for a joke using Gemini AI.
+        
+        Args:
+            joke_id: The ID of the joke (for logging purposes, can be empty)
+            setup: The joke setup
+            punchline: The joke punchline
+        
+        Returns:
+            Optional[str]: A single emoji character, or None if generation fails
+        """
+        if not GEMINI_API_KEY:
+            return None
+        
+        try:
+            # Create Gemini client
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            
+            # Create a simple prompt to generate an emoji
+            prompt = f"""Given this joke, return a single emoji that best represents or relates to the joke.
+
+Joke Setup: {setup}
+Joke Punchline: {punchline}
+
+Return ONLY a single emoji character (no text, no explanation, just the emoji)."""
+
+            # Generate content
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt
+            )
+            
+            # Extract emoji from response
+            if not response.candidates or len(response.candidates) == 0:
+                return None
+            
+            candidate = response.candidates[0]
+            if not candidate.content or not candidate.content.parts:
+                return None
+            
+            # Get text from the first part
+            emoji_text = ""
+            for part in candidate.content.parts:
+                if hasattr(part, 'text') and part.text:
+                    emoji_text = part.text.strip()
+                    break
+            
+            if not emoji_text:
+                return None
+            
+            # Extract the first emoji character (in case there are multiple)
+            # Take only the first character that's likely an emoji
+            emoji = emoji_text[0] if emoji_text else None
+            
+            return emoji if emoji else None
+            
+        except Exception as e:
+            print(f"Error generating emoji for joke {joke_id}: {str(e)}")
+            return None
+    
+    @staticmethod
     def generate_jokes(
         age_range: str, 
         scenario: str, 
@@ -135,13 +197,21 @@ Return ONLY the JSON array, no additional text or explanation."""
             # Parse JSON
             jokes_data = json.loads(response_text)
             
-            # Convert to GeminiJokeItem objects
+            # Convert to GeminiJokeItem objects and generate emoji for each joke
             jokes = []
             for joke_data in jokes_data:
+                joke_setup = joke_data.get("joke_setup", "")
+                joke_punchline = joke_data.get("joke_punchline", "")
+                joke_content = joke_data.get("joke_content", "")
+                
+                # Generate emoji for the joke
+                emoji = GeminiService.generate_emoji_for_joke("", joke_setup, joke_punchline)
+                
                 jokes.append(GeminiJokeItem(
-                    joke_setup=joke_data.get("joke_setup", ""),
-                    joke_punchline=joke_data.get("joke_punchline", ""),
-                    joke_content=joke_data.get("joke_content", "")
+                    joke_setup=joke_setup,
+                    joke_punchline=joke_punchline,
+                    joke_content=joke_content,
+                    emoji=emoji or ""
                 ))
             
             return jokes
@@ -192,23 +262,17 @@ Return ONLY the JSON array, no additional text or explanation."""
             # Look for setup patterns
             if any(keyword in line.lower() for keyword in ['why', 'what', 'how', 'when', 'where', 'did', 'do', 'does']):
                 if current_setup and current_punchline:
+                    emoji = GeminiService.generate_emoji_for_joke("", current_setup, current_punchline)
                     jokes.append(GeminiJokeItem(
                         joke_setup=current_setup,
                         joke_punchline=current_punchline,
-                        joke_content=""
+                        joke_content="",
+                        emoji=emoji or ""
                     ))
                 current_setup = line
                 current_punchline = None
             elif current_setup and not current_punchline:
                 current_punchline = line
-        
-        # Add the last joke
-        if current_setup and current_punchline:
-            jokes.append(GeminiJokeItem(
-                joke_setup=current_setup,
-                joke_punchline=current_punchline,
-                joke_content=""
-            ))
         
         return jokes[:10]  # Return up to 10 jokes
     

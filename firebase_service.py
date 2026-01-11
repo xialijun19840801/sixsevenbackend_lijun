@@ -130,6 +130,7 @@ class FirebaseService:
                 audio_urls=FirebaseService._normalize_audio_urls(data.get('audio_urls', data.get('audio_ids', []))),  # Support old field name for backward compatibility
                 scenarios=data.get('scenarios', []),
                 age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
+                emoji=data.get('emoji', ''),
                 created_by_customer=data.get('created_by_customer', False),
                 creator_id=data.get('creator_id', ''),
                 created_at=created_at,
@@ -177,6 +178,7 @@ class FirebaseService:
                     audio_urls=data.get('audio_urls', []),  # Support old field name for backward compatibility
                     scenarios=data.get('scenarios', []),
                     age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
+                    emoji=data.get('emoji', ''),
                     created_by_customer=data.get('created_by_customer', False),
                     creator_id=data.get('creator_id', ''),
                     created_at=created_at
@@ -248,6 +250,7 @@ class FirebaseService:
                     audio_ids=data.get('audio_ids', []),
                     scenarios=data.get('scenarios', []),
                     age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
+                    emoji=data.get('emoji', ''),
                     created_by_customer=data.get('created_by_customer', False),
                     creator_id=data.get('creator_id', ''),
                     created_at=created_at,
@@ -512,6 +515,7 @@ class FirebaseService:
                     audio_urls=FirebaseService._normalize_audio_urls(data.get('audio_urls', data.get('audio_ids', []))),  # Support old field name for backward compatibility
                     scenarios=data.get('scenarios', []),
                     age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
+                    emoji=data.get('emoji', ''),
                     created_by_customer=data.get('created_by_customer', False),
                     creator_id=data.get('creator_id', ''),
                     created_at=created_at
@@ -562,6 +566,7 @@ class FirebaseService:
                 audio_urls=data.get('audio_urls', []),  # Support old field name for backward compatibility
                 scenarios=data.get('scenarios', []),
                 age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
+                emoji=data.get('emoji', ''),
                 created_by_customer=data.get('created_by_customer', False),
                 creator_id=data.get('creator_id', ''),
                 created_at=created_at,
@@ -694,6 +699,7 @@ class FirebaseService:
             audio_urls=data.get('audio_urls', data.get('audio_ids', [])),  # Support old field name for backward compatibility
             scenarios=data.get('scenarios', []),
             age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
+            emoji=data.get('emoji', ''),
             created_by_customer=data.get('created_by_customer', False),
             creator_id=data.get('creator_id', ''),
             created_at=created_at,
@@ -819,6 +825,7 @@ class FirebaseService:
                     'audio_urls': joke_data.get('audio_urls', []),
                     'scenarios': new_scenarios,
                     'age_range': new_age_range,
+                    'emoji': joke_data.get('emoji', ''),
                     'created_by_customer': False,
                     'creator_id': creator_id,
                     'created_at': datetime.utcnow(),
@@ -881,6 +888,7 @@ class FirebaseService:
                     audio_ids=data.get('audio_ids', []),
                     scenarios=data.get('scenarios', []),
                     age_range=data.get('age_range', data.get('ages', [])),  # Support both old and new field names
+                    emoji=data.get('emoji', ''),
                     created_by_customer=data.get('created_by_customer', False),
                     creator_id=data.get('creator_id', ''),
                     created_at=created_at,

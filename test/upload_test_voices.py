@@ -84,8 +84,8 @@ def process_voice_file(file_path: str, creator_id: str = 'test'):
         print(f"Generated voice_id: {voice_id}")
         
         # Convert to WAV
-        wav_output_path = os.path.join('test_data', f"{file_name}.wav")
-        os.makedirs('test_data', exist_ok=True)
+        wav_output_path = os.path.join('../test_data', f"{file_name}.wav")
+        os.makedirs('../test_data', exist_ok=True)
         
         if not convert_to_wav(file_path, wav_output_path):
             print(f"Failed to convert {file_path} to WAV")
@@ -137,7 +137,7 @@ def main():
         return
     
     # Get all audio files from test_files directory
-    test_files_dir = Path('test_files')
+    test_files_dir = Path('../test_files')
     if not test_files_dir.exists():
         print(f"Error: {test_files_dir} directory does not exist")
         return

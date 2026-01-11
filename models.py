@@ -22,6 +22,7 @@ class JokeResponse(BaseModel):
     audio_urls: Optional[List[Dict[str, str]]] = []
     scenarios: Optional[List[str]] = []
     age_range: Optional[List[str]] = []
+    emoji: Optional[str] = ""
     created_by_customer: bool
     creator_id: str
     created_at: Optional[datetime] = None
@@ -61,6 +62,7 @@ class GeminiJokeItem(BaseModel):
     joke_setup: str
     joke_punchline: str
     joke_content: Optional[str] = ""
+    emoji: Optional[str] = ""
 
 class GeminiJokeResponse(BaseModel):
     jokes: List[GeminiJokeItem]
